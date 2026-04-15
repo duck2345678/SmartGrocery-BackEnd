@@ -6,6 +6,7 @@ import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.entity.UserAddress;
 import com.smartgrocery.backend.repository.UserAddressRepository;
 import com.smartgrocery.backend.repository.UserRepository;
+import com.smartgrocery.backend.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,11 +25,13 @@ public class UserService {
     private UserAddressRepository userAddressRepository;
 
     public UserDto getUserProfile(Long id) {
+        SecurityUtils.verifyOwnershipOrAdmin(id);
         User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
         return mapToDto(user);
     }
 
     public List<UserAddressDto> getUserAddresses(Long userId) {
+        SecurityUtils.verifyOwnershipOrAdmin(userId);
         return userAddressRepository.findByUser_Id(userId).stream()
                 .map(this::mapToAddressDto)
                 .collect(Collectors.toList());

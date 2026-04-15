@@ -33,6 +33,10 @@ public class GlobalResponseWrapper implements ResponseBodyAdvice<Object> {
             ServerHttpRequest request,
             ServerHttpResponse response
     ) {
+        if (body instanceof ApiResponse) {
+            return body;
+        }
+
         // Special handling for Strings to avoid ClassCastException in HttpMessageConverter
         if (body instanceof String) {
             try {

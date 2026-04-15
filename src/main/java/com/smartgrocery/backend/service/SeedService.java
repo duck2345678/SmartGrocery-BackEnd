@@ -1,20 +1,18 @@
 package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.entity.*;
-import com.smartgrocery.backend.entity.graph.CategoryNode;
-import com.smartgrocery.backend.entity.graph.IngredientNode;
 import com.smartgrocery.backend.entity.graph.ProductNode;
 import com.smartgrocery.backend.repository.*;
 import com.smartgrocery.backend.repository.graph.ProductNodeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 @Service
 public class SeedService {
@@ -55,7 +53,15 @@ public class SeedService {
     @Autowired
     private AIModelRepository aiModelRepository;
 
-    @Transactional("transactionManager")
+    private TransactionTemplate neo4jTransactionTemplate;
+
+    @Autowired
+    public void setNeo4jTransactionManager(
+            @Qualifier("neo4jTransactionManager") PlatformTransactionManager neo4jTransactionManager
+    ) {
+        this.neo4jTransactionTemplate = new TransactionTemplate(neo4jTransactionManager);
+    }
+
     public void seedData() {
         // 1. Roles
         if (roleRepository.count() == 0) {
@@ -126,15 +132,17 @@ public class SeedService {
         }
 
         // 6. Graph (Neo4j)
-        if (productNodeRepository.count() == 0) {
-            productRepository.findAll().forEach(p -> {
-                ProductNode node = ProductNode.builder()
-                        .productId(p.getId())
-                        .name(p.getName())
-                        .build();
-                productNodeRepository.save(node);
-            });
-            System.out.println(">> Synchronized Neo4j!");
-        }
+        neo4jTransactionTemplate.executeWithoutResult(status -> {
+            if (productNodeRepository.count() == 0) {
+                productRepository.findAll().forEach(p -> {
+                    ProductNode node = ProductNode.builder()
+                            .productId(p.getId())
+                            .name(p.getName())
+                            .build();
+                    productNodeRepository.save(node);
+                });
+                System.out.println(">> Synchronized Neo4j!");
+            }
+        });
     }
 }

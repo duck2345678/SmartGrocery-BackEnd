@@ -11,6 +11,7 @@ import com.smartgrocery.backend.repository.CartItemRepository;
 import com.smartgrocery.backend.repository.CartRepository;
 import com.smartgrocery.backend.repository.ProductVariantRepository;
 import com.smartgrocery.backend.repository.UserRepository;
+import com.smartgrocery.backend.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,7 @@ public class CartService {
     private UserRepository userRepository;
 
     public CartDto getCart(Long userId) {
+        SecurityUtils.verifyOwnershipOrAdmin(userId);
         Cart cart = getOrCreateCart(userId);
         return mapToDto(cart);
     }
@@ -65,6 +67,9 @@ public class CartService {
     }
 
     public void removeCartItem(Long cartItemId) {
+        CartItem item = cartItemRepository.findById(cartItemId)
+                .orElseThrow(() -> new RuntimeException("Cart item not found"));
+        SecurityUtils.verifyResourceOwnerOrAdmin(item.getCart().getUser().getId(), "CartItem", cartItemId);
         cartItemRepository.deleteById(cartItemId);
     }
 

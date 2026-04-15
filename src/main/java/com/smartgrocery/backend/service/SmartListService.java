@@ -8,6 +8,7 @@ import com.smartgrocery.backend.repository.ProductVariantRepository;
 import com.smartgrocery.backend.repository.SmartListItemRepository;
 import com.smartgrocery.backend.repository.SmartListRepository;
 import com.smartgrocery.backend.repository.UserRepository;
+import com.smartgrocery.backend.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,7 @@ public class SmartListService {
     private ProductVariantRepository productVariantRepository;
 
     public SmartList createSmartList(Long userId, String name, String type, String note) {
+        SecurityUtils.verifyOwnershipOrAdmin(userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -47,6 +49,7 @@ public class SmartListService {
     public SmartListItem addItemToList(Long listId, Long variantId, Integer quantity, String note) {
         SmartList list = smartListRepository.findById(listId)
                 .orElseThrow(() -> new RuntimeException("Smart List not found"));
+        SecurityUtils.verifyResourceOwnerOrAdmin(list.getUser().getId(), "SmartList", listId);
 
         ProductVariant variant = productVariantRepository.findById(variantId)
                 .orElseThrow(() -> new RuntimeException("Product variant not found"));
@@ -62,18 +65,32 @@ public class SmartListService {
     }
 
     public List<SmartList> getUserLists(Long userId) {
+        SecurityUtils.verifyOwnershipOrAdmin(userId);
         return smartListRepository.findByUser_Id(userId);
     }
 
     public List<SmartListItem> getListItems(Long listId) {
+        SmartList list = smartListRepository.findById(listId)
+                .orElseThrow(() -> new RuntimeException("Smart List not found"));
+        SecurityUtils.verifyResourceOwnerOrAdmin(list.getUser().getId(), "SmartList", listId);
         return smartListItemRepository.findBySmartListId(listId);
     }
 
     public void deleteList(Long listId) {
+        SmartList list = smartListRepository.findById(listId)
+                .orElseThrow(() -> new RuntimeException("Smart List not found"));
+        SecurityUtils.verifyResourceOwnerOrAdmin(list.getUser().getId(), "SmartList", listId);
         smartListRepository.deleteById(listId);
     }
 
     public void removeItemFromList(Long itemId) {
+        SmartListItem item = smartListItemRepository.findById(itemId)
+                .orElseThrow(() -> new RuntimeException("Smart List item not found"));
+        SecurityUtils.verifyResourceOwnerOrAdmin(
+                item.getSmartList().getUser().getId(),
+                "SmartListItem",
+                itemId
+        );
         smartListItemRepository.deleteById(itemId);
     }
 }

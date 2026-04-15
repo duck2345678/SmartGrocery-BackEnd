@@ -6,6 +6,7 @@ import com.smartgrocery.backend.dto.OrderItemDto;
 import com.smartgrocery.backend.dto.OrderItemRequest;
 import com.smartgrocery.backend.entity.*;
 import com.smartgrocery.backend.repository.*;
+import com.smartgrocery.backend.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -156,6 +157,7 @@ public class OrderService {
     }
 
     public List<OrderDto> getUserOrders(Long userId) {
+        SecurityUtils.verifyOwnershipOrAdmin(userId);
         return orderRepository.findByUser_Id(userId).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartgrocery.backend.entity.*;
 import com.smartgrocery.backend.repository.*;
+import com.smartgrocery.backend.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +41,7 @@ public class MealPlanService {
     private ObjectMapper objectMapper;
 
     public Mono<MealPlan> generateAIPlan(Long userId, String goal) {
+        SecurityUtils.verifyOwnershipOrAdmin(userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -117,6 +119,7 @@ public class MealPlanService {
     }
 
     public List<MealPlan> getByUserId(Long userId) {
+        SecurityUtils.verifyOwnershipOrAdmin(userId);
         return mealPlanRepository.findByUser_IdOrderByCreatedAtDesc(userId);
     }
 }

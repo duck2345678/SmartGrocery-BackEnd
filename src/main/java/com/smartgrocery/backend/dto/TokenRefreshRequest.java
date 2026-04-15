@@ -1,5 +1,6 @@
 package com.smartgrocery.backend.dto;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -9,8 +10,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AuthResponse {
-    private String token;
+public class TokenRefreshRequest {
+    @NotBlank
     private String refreshToken;
-    private UserDto user;
 }
