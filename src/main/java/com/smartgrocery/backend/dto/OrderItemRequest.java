@@ -12,4 +12,5 @@ import lombok.NoArgsConstructor;
 public class OrderItemRequest {
     private Long variantId;
     private Integer quantity;
+    private Boolean allowSubstitution;
 }

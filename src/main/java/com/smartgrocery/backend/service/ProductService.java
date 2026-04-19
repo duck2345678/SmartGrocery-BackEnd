@@ -6,6 +6,7 @@ import com.smartgrocery.backend.dto.ProductDto;
 import com.smartgrocery.backend.dto.ProductVariantDto;
 import com.smartgrocery.backend.entity.Product;
 import com.smartgrocery.backend.entity.ProductVariant;
+import com.smartgrocery.backend.repository.InventoryStockRepository;
 import com.smartgrocery.backend.repository.ProductRepository;
 import com.smartgrocery.backend.repository.ProductVariantRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,9 @@ public class ProductService {
 
     @Autowired
     private ProductVariantRepository productVariantRepository;
+
+    @Autowired
+    private InventoryStockRepository inventoryStockRepository;
 
     public Page<ProductDto> getAllProducts(Pageable pageable) {
         return productRepository.findAll(pageable)
@@ -51,6 +55,7 @@ public class ProductService {
                 .name(product.getName())
                 .shortDescription(product.getShortDescription())
                 .description(product.getDescription())
+                .image(product.getImage())
                 .originCountry(product.getOriginCountry())
                 .status(product.getStatus())
                 .isFeatured(product.getIsFeatured())
@@ -80,6 +85,7 @@ public class ProductService {
                         .compareAtPrice(v.getCompareAtPrice())
                         .vatPercent(v.getVatPercent())
                         .status(v.getStatus())
+                        .stock(inventoryStockRepository.sumAvailableByVariantId(v.getId()) != null ? inventoryStockRepository.sumAvailableByVariantId(v.getId()).intValue() : 0)
                         .build()).collect(Collectors.toList()))
                 .build();
     }

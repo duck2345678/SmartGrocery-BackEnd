@@ -28,6 +28,15 @@ public class OrderController {
         return ResponseEntity.ok(orderService.getUserOrders(user.getId()));
     }
 
+    @Operation(summary = "Lấy chi tiết đơn hàng")
+    @GetMapping("/{orderId}")
+    public ResponseEntity<OrderDto> getOrderDetail(
+            @AuthenticationPrincipal User user,
+            @PathVariable Long orderId
+    ) {
+        return ResponseEntity.ok(orderService.getOrderDetail(user.getId(), orderId));
+    }
+
     @Operation(summary = "Tạo đơn hàng mới (Checkout)")
     @PostMapping("/checkout")
     public ResponseEntity<OrderDto> createOrder(

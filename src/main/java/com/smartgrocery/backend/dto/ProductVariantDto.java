@@ -23,4 +23,5 @@ public class ProductVariantDto {
     private BigDecimal compareAtPrice;
     private BigDecimal vatPercent;
     private String status;
+    private Integer stock;
 }

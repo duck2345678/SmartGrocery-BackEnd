@@ -11,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -53,6 +55,9 @@ public class SeedService {
     @Autowired
     private AIModelRepository aiModelRepository;
 
+    @Autowired
+    private InventoryStockRepository inventoryStockRepository;
+
     private TransactionTemplate neo4jTransactionTemplate;
 
     @Autowired
@@ -62,6 +67,7 @@ public class SeedService {
         this.neo4jTransactionTemplate = new TransactionTemplate(neo4jTransactionManager);
     }
 
+    @Transactional
     public void seedData() {
         // 1. Roles
         if (roleRepository.count() == 0) {
@@ -75,6 +81,7 @@ public class SeedService {
         // 2. Users
         Role customerRole = roleRepository.findByName("CUSTOMER").orElse(null);
         Role staffRole = roleRepository.findByName("STAFF").orElse(null);
+        Role adminRole = roleRepository.findByName("ADMIN").orElse(null);
 
         if (customerRole != null && !userRepository.existsByEmail("customer.p0@smartgrocery.com")) {
             User user = User.builder()
@@ -113,6 +120,19 @@ public class SeedService {
             System.out.println(">> Seeded P0 Staff: staff.p0@smartgrocery.com / password123");
         }
 
+        if (adminRole != null && !userRepository.existsByEmail("admin.p0@smartgrocery.com")) {
+            User admin = User.builder()
+                    .email("admin.p0@smartgrocery.com")
+                    .passwordHash(passwordEncoder.encode("password123"))
+                    .fullName("P0 Admin")
+                    .phone("0900000000")
+                    .role(adminRole)
+                    .status("ACTIVE")
+                    .build();
+            userRepository.save(admin);
+            System.out.println(">> Seeded P0 Admin: admin.p0@smartgrocery.com / password123");
+        }
+
         // 3. AI Models
         if (aiModelRepository.count() == 0) {
             aiModelRepository.saveAll(List.of(
@@ -133,18 +153,72 @@ public class SeedService {
         }
 
         // 5. Catalog
-        if (categoryRepository.count() == 0) {
-            Category veg = Category.builder().categoryCode("CAT_VEG").name("Rau củ").build();
-            categoryRepository.save(veg);
+        Warehouse mainWarehouse = warehouseRepository.findAll().stream().findFirst()
+                .orElseGet(() -> warehouseRepository
+                        .save(Warehouse.builder().code("WH_MAIN").name("Kho Trung Tâm").location("TP. Thủ Đức").build()));
 
-            Product p1 = Product.builder().productCode("P_BROC").name("Bông cải xanh").category(veg).build();
-            productRepository.save(p1);
+        Category veg = categoryRepository.findByCategoryCode("CAT_VEG")
+                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_VEG").name("Rau củ").build()));
+        Category fruit = categoryRepository.findByCategoryCode("CAT_FRUIT")
+                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_FRUIT").name("Trái cây").build()));
+        Category dairy = categoryRepository.findByCategoryCode("CAT_DAIRY")
+                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_DAIRY").name("Sữa & trứng").build()));
+        Category meat = categoryRepository.findByCategoryCode("CAT_MEAT")
+                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_MEAT").name("Thịt & hải sản").build()));
+        Category staple = categoryRepository.findByCategoryCode("CAT_STAPLE")
+                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_STAPLE").name("Nhu yếu phẩm").build()));
 
-            productVariantRepository.save(ProductVariant.builder()
-                    .product(p1).sku("SKU_B001").variantName("Bông cải xanh 500g")
-                    .netPrice(BigDecimal.valueOf(30000)).status("ACTIVE").unit("PACK").build());
-            System.out.println(">> Seeded Catalog!");
+        record SeedProduct(String code, String name, Category category, String sku, String barcode, String variantName, String unit, BigDecimal price, int stock) {}
+        List<SeedProduct> catalog = List.of(
+                new SeedProduct("P_BROC", "Bông cải xanh", veg, "SKU_B001", "BAR_B001", "Bông cải xanh 500g", "PACK", BigDecimal.valueOf(30000), 40),
+                new SeedProduct("P_CARROT", "Cà rốt Đà Lạt", veg, "SKU_V002", "BAR_V002", "Cà rốt 1kg", "BAG", BigDecimal.valueOf(28000), 35),
+                new SeedProduct("P_TOMATO", "Cà chua bi", veg, "SKU_V003", "BAR_V003", "Cà chua bi 500g", "BOX", BigDecimal.valueOf(25000), 25),
+                new SeedProduct("P_APPLE", "Táo đỏ Mỹ", fruit, "SKU_F001", "BAR_F001", "Táo đỏ 1kg", "BAG", BigDecimal.valueOf(68000), 20),
+                new SeedProduct("P_BANANA", "Chuối già Nam Mỹ", fruit, "SKU_F002", "BAR_F002", "Chuối 1 nải", "BUNCH", BigDecimal.valueOf(22000), 30),
+                new SeedProduct("P_ORANGE", "Cam sành", fruit, "SKU_F003", "BAR_F003", "Cam 1kg", "BAG", BigDecimal.valueOf(42000), 18),
+                new SeedProduct("P_MILK", "Sữa tươi không đường", dairy, "SKU_D001", "BAR_D001", "Hộp 1L", "BOX", BigDecimal.valueOf(33000), 60),
+                new SeedProduct("P_EGGS", "Trứng gà", dairy, "SKU_D002", "BAR_D002", "Vỉ 10 trứng", "TRAY", BigDecimal.valueOf(32000), 50),
+                new SeedProduct("P_PORK", "Thịt heo ba rọi", meat, "SKU_M001", "BAR_M001", "500g", "PACK", BigDecimal.valueOf(75000), 15),
+                new SeedProduct("P_RICE", "Gạo ST25", staple, "SKU_S001", "BAR_S001", "Túi 5kg", "BAG", BigDecimal.valueOf(165000), 12)
+        );
+
+        int createdCount = 0;
+        for (SeedProduct sp : catalog) {
+            Product product = productRepository.findByProductCode(sp.code)
+                    .orElseGet(() -> {
+                        Product p = Product.builder()
+                                .productCode(sp.code)
+                                .name(sp.name)
+                                .category(sp.category)
+                                .shortDescription("Hàng mới về")
+                                .status("ACTIVE")
+                                .isFeatured(false)
+                                .build();
+                        return productRepository.save(p);
+                    });
+
+            ProductVariant variant = productVariantRepository.findBySku(sp.sku)
+                    .orElseGet(() -> productVariantRepository.save(ProductVariant.builder()
+                            .product(product)
+                            .sku(sp.sku)
+                            .barcode(sp.barcode)
+                            .variantName(sp.variantName)
+                            .unit(sp.unit)
+                            .netPrice(sp.price)
+                            .status("ACTIVE")
+                            .build()));
+
+            inventoryStockRepository.findByWarehouseIdAndVariantId(mainWarehouse.getId(), variant.getId())
+                    .orElseGet(() -> inventoryStockRepository.save(InventoryStock.builder()
+                            .warehouse(mainWarehouse)
+                            .variant(variant)
+                            .availableQuantity(sp.stock)
+                            .reservedQuantity(0)
+                            .build()));
+
+            createdCount++;
         }
+        if (createdCount > 0) System.out.println(">> Seeded Catalog (10 products + inventory)!");
 
         // 6. Graph (Neo4j)
         neo4jTransactionTemplate.executeWithoutResult(status -> {

@@ -50,6 +50,9 @@ public class OrderService {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private WarehouseRepository warehouseRepository;
+
     @Transactional(rollbackFor = Exception.class)
     public OrderDto createOrder(User user, CreateOrderRequest request) {
 
@@ -81,6 +84,8 @@ public class OrderService {
         BigDecimal subtotal = BigDecimal.ZERO;
 
         // 2. Process Items with Stock Lock & Price Snapshot
+        Warehouse warehouse = warehouseRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy kho hàng"));
         for (OrderItemRequest itemReq : request.getItems()) {
             ProductVariant variant = variantRepository.findById(itemReq.getVariantId())
                     .orElseThrow(() -> new RuntimeException("Sản phẩm không tồn tại: " + itemReq.getVariantId()));
@@ -88,7 +93,7 @@ public class OrderService {
             // PESIMISTIC LOCK & Stock Check
             if (variant.getId() == null) throw new RuntimeException("Variant ID is null");
             
-            InventoryStock stock = inventoryStockRepository.findByVariantId(variant.getId())
+            InventoryStock stock = inventoryStockRepository.findByWarehouseIdAndVariantId(warehouse.getId(), variant.getId())
                     .orElseThrow(() -> new RuntimeException("Không tìm thấy thông tin tồn kho cho: " + variant.getVariantName()));
             
             if (stock.getAvailableQuantity() == null || stock.getAvailableQuantity() < itemReq.getQuantity()) {
@@ -109,7 +114,9 @@ public class OrderService {
                     .unitPrice(unitPrice)
                     .subtotal(itemTotal)
                     .totalPrice(itemTotal)
+                    .allowSubstitution(Boolean.TRUE.equals(itemReq.getAllowSubstitution()))
                     .build();
+
 
             orderItems.add(orderItemRepository.save(orderItem));
             
@@ -163,6 +170,16 @@ public class OrderService {
                 .collect(Collectors.toList());
     }
 
+    public OrderDto getOrderDetail(Long userId, Long orderId) {
+        SecurityUtils.verifyOwnershipOrAdmin(userId);
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+        if (!order.getUser().getId().equals(userId)) {
+            throw new RuntimeException("Forbidden");
+        }
+        return mapToDto(order);
+    }
+
     private OrderDto mapToDto(Order order) {
         return OrderDto.builder()
                 .id(order.getId())
@@ -191,6 +208,7 @@ public class OrderService {
                         .subtotal(item.getSubtotal())
                         .discountAmount(item.getDiscountAmount())
                         .totalPrice(item.getTotalPrice())
+                        .allowSubstitution(item.getAllowSubstitution())
                         .build()).collect(Collectors.toList()) : null)
                 .build();
     }

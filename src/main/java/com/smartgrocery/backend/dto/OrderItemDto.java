@@ -22,4 +22,5 @@ public class OrderItemDto {
     private BigDecimal subtotal;
     private BigDecimal discountAmount;
     private BigDecimal totalPrice;
+    private Boolean allowSubstitution;
 }

@@ -43,6 +43,9 @@ public class Product {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(length = 255)
+    private String image;
+
     @Column(name = "origin_country", length = 100)
     private String originCountry;
 

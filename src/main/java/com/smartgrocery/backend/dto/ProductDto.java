@@ -18,6 +18,7 @@ public class ProductDto {
     private String name;
     private String shortDescription;
     private String description;
+    private String image;
     private String originCountry;
     private String status;
     private Boolean isFeatured;

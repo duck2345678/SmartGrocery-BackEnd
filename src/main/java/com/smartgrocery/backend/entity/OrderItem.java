@@ -51,6 +51,10 @@ public class OrderItem {
     @Builder.Default
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
+    @Column(name = "allow_substitution", nullable = false)
+    @Builder.Default
+    private Boolean allowSubstitution = false;
+
     @Column(name = "total_price", precision = 15, scale = 2, nullable = false)
     private BigDecimal totalPrice;
 }
