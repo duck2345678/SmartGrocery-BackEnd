@@ -73,13 +73,15 @@ public class SeedService {
         }
 
         // 2. Users
-        if (userRepository.count() == 0) {
-            Role customerRole = roleRepository.findByName("CUSTOMER").orElse(null);
+        Role customerRole = roleRepository.findByName("CUSTOMER").orElse(null);
+        Role staffRole = roleRepository.findByName("STAFF").orElse(null);
+
+        if (customerRole != null && !userRepository.existsByEmail("customer.p0@smartgrocery.com")) {
             User user = User.builder()
-                    .email("customer@smartgrocery.com")
+                    .email("customer.p0@smartgrocery.com")
                     .passwordHash(passwordEncoder.encode("password123"))
-                    .fullName("Nguyễn Văn Khách")
-                    .phone("0987654321")
+                    .fullName("P0 Customer")
+                    .phone("0987654320")
                     .role(customerRole)
                     .status("ACTIVE")
                     .build();
@@ -89,13 +91,26 @@ public class SeedService {
                     .user(user)
                     .receiverName(user.getFullName())
                     .receiverPhone(user.getPhone())
-                    .streetAddress("123 Đường ABC")
-                    .ward("Phường 1")
+                    .streetAddress("101 Đường Tôn Đức Thắng")
+                    .ward("Phường Bến Nghé")
                     .district("Quận 1")
                     .city("TP. Hồ Chí Minh")
                     .isDefault(true)
                     .build());
-            System.out.println(">> Seeded Test User!");
+            System.out.println(">> Seeded P0 Customer: customer.p0@smartgrocery.com / password123");
+        }
+
+        if (staffRole != null && !userRepository.existsByEmail("staff.p0@smartgrocery.com")) {
+            User staff = User.builder()
+                    .email("staff.p0@smartgrocery.com")
+                    .passwordHash(passwordEncoder.encode("password123"))
+                    .fullName("P0 Staff")
+                    .phone("0912345678")
+                    .role(staffRole)
+                    .status("ACTIVE")
+                    .build();
+            userRepository.save(staff);
+            System.out.println(">> Seeded P0 Staff: staff.p0@smartgrocery.com / password123");
         }
 
         // 3. AI Models
