@@ -1,11 +1,13 @@
 package com.smartgrocery.backend.controller;
 
 import com.smartgrocery.backend.entity.ChatSession;
+import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.service.AIService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -61,5 +63,13 @@ public class AIController {
     @GetMapping("/related-products/{productId}")
     public ResponseEntity<java.util.List<com.smartgrocery.backend.entity.graph.ProductNode>> getRelated(@PathVariable Long productId) {
         return ResponseEntity.ok(productNodeRepository.findRelatedProducts(productId, 5));
+    }
+
+    @Operation(summary = "Gợi ý nhắc mua lại sản phẩm theo chu kỳ cá nhân")
+    @GetMapping("/nudges")
+    public ResponseEntity<java.util.List<com.smartgrocery.backend.dto.AINudgeDto>> getNudges(
+            @AuthenticationPrincipal User user
+    ) {
+        return ResponseEntity.ok(aiService.getNudges(user.getId()));
     }
 }

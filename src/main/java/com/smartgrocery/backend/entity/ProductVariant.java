@@ -47,6 +47,9 @@ public class ProductVariant {
     @Column(name = "weight_gram")
     private Integer weightGram;
 
+    @Column(name = "aisle_location", length = 20)
+    private String aisleLocation;
+
     @Column(name = "net_price", precision = 15, scale = 2, nullable = false)
     private BigDecimal netPrice;
 

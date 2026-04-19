@@ -14,13 +14,17 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class CartItemDto {
     private Long id;
+    private Long productId;
     private Long variantId;
     private String variantName;
+    private String unit;
     private String productName;
     private String sku;
     private BigDecimal unitPrice;
     private Integer quantity;
+    private Boolean allowSubstitution;
     private BigDecimal subtotal;
     private String imageUrl;
+    private Integer stock;
     private LocalDateTime addedAt;
 }

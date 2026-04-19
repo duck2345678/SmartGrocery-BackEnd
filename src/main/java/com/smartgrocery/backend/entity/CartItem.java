@@ -37,6 +37,10 @@ public class CartItem {
     @Builder.Default
     private Integer quantity = 1;
 
+    @Column(name = "allow_substitution", nullable = false)
+    @Builder.Default
+    private Boolean allowSubstitution = false;
+
     @CreationTimestamp
     @Column(name = "added_at", nullable = false, updatable = false)
     private LocalDateTime addedAt;

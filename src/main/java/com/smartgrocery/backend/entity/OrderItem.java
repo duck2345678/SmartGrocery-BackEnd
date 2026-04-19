@@ -55,6 +55,20 @@ public class OrderItem {
     @Builder.Default
     private Boolean allowSubstitution = false;
 
+    @Column(name = "picked_quantity")
+    private Integer pickedQuantity;
+
+    @Column(name = "is_substituted", nullable = false)
+    @Builder.Default
+    private Boolean isSubstituted = false;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "substituted_variant_id")
+    private ProductVariant substitutedVariant;
+
+    @Column(name = "substitution_reason", length = 255)
+    private String substitutionReason;
+
     @Column(name = "total_price", precision = 15, scale = 2, nullable = false)
     private BigDecimal totalPrice;
 }

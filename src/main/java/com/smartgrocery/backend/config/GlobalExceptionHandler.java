@@ -2,8 +2,12 @@ package com.smartgrocery.backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartgrocery.backend.dto.ApiResponse;
+import com.smartgrocery.backend.exception.OrderAssignmentConflictException;
 import com.smartgrocery.backend.exception.ResourceOwnershipException;
 import com.smartgrocery.backend.service.AuditService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -17,8 +21,13 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+
+    @Value("${app.debug.errors:true}")
+    private boolean debugErrors;
 
     public GlobalExceptionHandler(AuditService auditService, ObjectMapper objectMapper) {
         this.auditService = auditService;
@@ -96,8 +105,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(ApiResponse.error(400, message));
     }
 
+    @ExceptionHandler(OrderAssignmentConflictException.class)
+    public ResponseEntity<ApiResponse<Void>> handleOrderAssignmentConflict(OrderAssignmentConflictException ex) {
+        String message = ex.getMessage() != null ? ex.getMessage() : "Order already assigned";
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(409, message));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGeneralException(Exception ex) {
+        log.error("Unhandled exception", ex);
+        if (debugErrors) {
+            String msg = ex.getMessage() != null && !ex.getMessage().isBlank()
+                    ? ex.getClass().getSimpleName() + ": " + ex.getMessage()
+                    : ex.getClass().getSimpleName();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error(500, msg));
+        }
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error(500, "An unexpected system error occurred"));
     }

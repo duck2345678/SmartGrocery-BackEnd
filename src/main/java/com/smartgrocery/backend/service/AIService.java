@@ -1,18 +1,31 @@
 package com.smartgrocery.backend.service;
 
+import com.smartgrocery.backend.dto.AINudgeDto;
 import com.smartgrocery.backend.entity.ChatMessage;
 import com.smartgrocery.backend.entity.ChatSession;
+import com.smartgrocery.backend.entity.Order;
+import com.smartgrocery.backend.entity.OrderItem;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.entity.graph.ProductNode;
 import com.smartgrocery.backend.repository.ChatMessageRepository;
 import com.smartgrocery.backend.repository.ChatSessionRepository;
+import com.smartgrocery.backend.repository.OrderRepository;
 import com.smartgrocery.backend.repository.UserRepository;
 import com.smartgrocery.backend.repository.graph.ProductNodeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
 
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,7 +47,13 @@ public class AIService {
     private UserRepository userRepository;
 
     @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
     private com.smartgrocery.backend.repository.UserNutritionProfileRepository userNutritionProfileRepository;
+
+    @Autowired
+    private Clock clock;
 
     public Mono<String> getAIResponse(String userQuery, Long sessionId) {
         ChatSession session = chatSessionRepository.findById(sessionId)
@@ -141,5 +160,86 @@ public class AIService {
                 .user(user)
                 .title("Cuá»™c trÃ² chuyá»‡n má»›i")
                 .build());
+    }
+
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
+    public List<AINudgeDto> getNudges(Long userId) {
+        if (userId == null) return List.of();
+        List<Order> orders = orderRepository.findTop200ByUser_IdAndStatusNotOrderByCreatedAtDesc(userId, "CANCELLED");
+        if (orders.isEmpty()) return List.of();
+
+        class ProductHistory {
+            Long productId;
+            String name;
+            String image;
+            java.math.BigDecimal price;
+            List<LocalDate> dates = new ArrayList<>();
+        }
+
+        Map<Long, ProductHistory> byProduct = new HashMap<>();
+        for (Order order : orders) {
+            LocalDate orderDate = order.getCreatedAt() != null ? order.getCreatedAt().toLocalDate() : LocalDate.now(clock);
+            List<OrderItem> items = order.getOrderItems() != null ? order.getOrderItems() : List.of();
+            for (OrderItem item : items) {
+                if (item.getVariant() == null || item.getVariant().getProduct() == null) continue;
+                Long productId = item.getVariant().getProduct().getId();
+                if (productId == null) continue;
+                ProductHistory h = byProduct.computeIfAbsent(productId, __ -> {
+                    ProductHistory x = new ProductHistory();
+                    x.productId = productId;
+                    x.name = item.getProductName();
+                    x.image = item.getVariant().getProduct().getImage();
+                    x.price = item.getVariant().getNetPrice();
+                    return x;
+                });
+                h.dates.add(orderDate);
+                if (h.price == null) h.price = item.getVariant().getNetPrice();
+                if (h.image == null) h.image = item.getVariant().getProduct().getImage();
+                if (h.name == null) h.name = item.getProductName();
+            }
+        }
+
+        LocalDate now = LocalDate.now(clock);
+        List<AINudgeDto> candidates = new ArrayList<>();
+        for (ProductHistory h : byProduct.values()) {
+            if (h.dates.isEmpty()) continue;
+            h.dates.sort(LocalDate::compareTo);
+            LocalDate last = h.dates.get(h.dates.size() - 1);
+            long daysSinceLast = ChronoUnit.DAYS.between(last, now);
+
+            int cadence;
+            if (h.dates.size() >= 2) {
+                long total = 0;
+                for (int i = 1; i < h.dates.size(); i++) {
+                    total += Math.max(1, ChronoUnit.DAYS.between(h.dates.get(i - 1), h.dates.get(i)));
+                }
+                cadence = Math.max(3, (int) Math.round((double) total / (h.dates.size() - 1)));
+            } else {
+                cadence = 14;
+            }
+
+            boolean due = daysSinceLast >= Math.max(3, Math.round(cadence * 0.8f));
+            if (!due) continue;
+
+            double confidence = Math.min(0.95, 0.45 + Math.min(0.35, h.dates.size() * 0.07) + Math.min(0.2, (double) daysSinceLast / Math.max(1, cadence * 2)));
+            String reason;
+            if (h.dates.size() >= 2) {
+                reason = String.format(Locale.ROOT, "Thường bạn mua món này mỗi %d ngày", cadence);
+            } else {
+                reason = String.format(Locale.ROOT, "Đã %d ngày bạn chưa mua lại món này", daysSinceLast);
+            }
+
+            candidates.add(AINudgeDto.builder()
+                    .productId(h.productId)
+                    .name(h.name)
+                    .image(h.image)
+                    .price(h.price)
+                    .reason(reason)
+                    .confidenceScore(Math.round(confidence * 100.0) / 100.0)
+                    .build());
+        }
+
+        candidates.sort(Comparator.comparing(AINudgeDto::getConfidenceScore, Comparator.nullsLast(Comparator.reverseOrder())));
+        return candidates.stream().limit(5).collect(Collectors.toList());
     }
 }

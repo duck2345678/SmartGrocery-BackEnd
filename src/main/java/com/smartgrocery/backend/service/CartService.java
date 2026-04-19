@@ -9,6 +9,7 @@ import com.smartgrocery.backend.entity.ProductVariant;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.repository.CartItemRepository;
 import com.smartgrocery.backend.repository.CartRepository;
+import com.smartgrocery.backend.repository.InventoryStockRepository;
 import com.smartgrocery.backend.repository.ProductVariantRepository;
 import com.smartgrocery.backend.repository.UserRepository;
 import com.smartgrocery.backend.security.SecurityUtils;
@@ -37,6 +38,9 @@ public class CartService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private InventoryStockRepository inventoryStockRepository;
+
     public CartDto getCart(Long userId) {
         SecurityUtils.verifyOwnershipOrAdmin(userId);
         Cart cart = getOrCreateCart(userId);
@@ -53,12 +57,16 @@ public class CartService {
         if (existingItem.isPresent()) {
             CartItem item = existingItem.get();
             item.setQuantity(item.getQuantity() + request.getQuantity());
+            if (request.getAllowSubstitution() != null) {
+                item.setAllowSubstitution(Boolean.TRUE.equals(request.getAllowSubstitution()));
+            }
             cartItemRepository.save(item);
         } else {
             CartItem newItem = CartItem.builder()
                     .cart(cart)
                     .variant(variant)
                     .quantity(request.getQuantity())
+                    .allowSubstitution(Boolean.TRUE.equals(request.getAllowSubstitution()))
                     .build();
             cartItemRepository.save(newItem);
         }
@@ -66,11 +74,42 @@ public class CartService {
         return getCart(user.getId());
     }
 
-    public void removeCartItem(Long cartItemId) {
+    public CartDto removeCartItem(User user, Long cartItemId) {
         CartItem item = cartItemRepository.findById(cartItemId)
                 .orElseThrow(() -> new RuntimeException("Cart item not found"));
         SecurityUtils.verifyResourceOwnerOrAdmin(item.getCart().getUser().getId(), "CartItem", cartItemId);
         cartItemRepository.deleteById(cartItemId);
+        return getCart(user.getId());
+    }
+
+    public CartDto updateCartItem(User user, Long cartItemId, Integer quantity, Boolean allowSubstitution) {
+        if (quantity == null && allowSubstitution == null) {
+            throw new IllegalArgumentException("Thiếu dữ liệu cập nhật");
+        }
+        if (quantity != null && quantity < 0) throw new IllegalArgumentException("quantity không hợp lệ");
+
+        CartItem item = cartItemRepository.findById(cartItemId)
+                .orElseThrow(() -> new RuntimeException("Cart item not found"));
+        SecurityUtils.verifyResourceOwnerOrAdmin(item.getCart().getUser().getId(), "CartItem", cartItemId);
+
+        if (quantity != null) {
+            if (quantity == 0) {
+                cartItemRepository.deleteById(cartItemId);
+                return getCart(user.getId());
+            }
+            item.setQuantity(quantity);
+        }
+
+        if (allowSubstitution != null) {
+            item.setAllowSubstitution(Boolean.TRUE.equals(allowSubstitution));
+        }
+
+        cartItemRepository.save(item);
+        return getCart(user.getId());
+    }
+
+    public CartDto updateCartItemQuantity(User user, Long cartItemId, Integer quantity) {
+        return updateCartItem(user, cartItemId, quantity, null);
     }
 
     private Cart getOrCreateCart(Long userId) {
@@ -98,15 +137,23 @@ public class CartService {
 
     private CartItemDto mapItemToDto(CartItem item) {
         BigDecimal subtotal = item.getVariant().getNetPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+        Integer stock = inventoryStockRepository.sumAvailableByVariantId(item.getVariant().getId()) != null
+                ? inventoryStockRepository.sumAvailableByVariantId(item.getVariant().getId()).intValue()
+                : 0;
         return CartItemDto.builder()
                 .id(item.getId())
+                .productId(item.getVariant().getProduct().getId())
                 .variantId(item.getVariant().getId())
                 .variantName(item.getVariant().getVariantName())
+                .unit(item.getVariant().getUnit())
                 .productName(item.getVariant().getProduct().getName())
                 .sku(item.getVariant().getSku())
                 .unitPrice(item.getVariant().getNetPrice())
                 .quantity(item.getQuantity())
+                .allowSubstitution(item.getAllowSubstitution())
                 .subtotal(subtotal)
+                .imageUrl(item.getVariant().getProduct().getImage())
+                .stock(stock)
                 .addedAt(item.getAddedAt())
                 .build();
     }

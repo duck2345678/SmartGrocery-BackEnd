@@ -62,7 +62,24 @@ public class OrderService {
                 : null;
 
         if (request.getItems() == null || request.getItems().isEmpty()) {
-            throw new RuntimeException("Giỏ hàng rỗng, không thể tạo đơn hàng");
+            // Fallback: checkout from persisted cart
+            Cart cart = cartRepository.findByUserId(user.getId()).orElse(null);
+            if (cart == null) {
+                throw new RuntimeException("Giỏ hàng rỗng, không thể tạo đơn hàng");
+            }
+            List<CartItem> cartItems = cartItemRepository.findByCart_Id(cart.getId());
+            if (cartItems.isEmpty()) {
+                throw new RuntimeException("Giỏ hàng rỗng, không thể tạo đơn hàng");
+            }
+
+            List<OrderItemRequest> fromCart = cartItems.stream()
+                    .map(ci -> OrderItemRequest.builder()
+                            .variantId(ci.getVariant().getId())
+                            .quantity(ci.getQuantity())
+                            .allowSubstitution(ci.getAllowSubstitution())
+                            .build())
+                    .collect(Collectors.toList());
+            request.setItems(fromCart);
         }
 
         // 1. Create Base Order
@@ -195,6 +212,8 @@ public class OrderService {
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())
                 .customerNote(order.getCustomerNote())
+                .assigneeId(order.getAssignee() != null ? order.getAssignee().getId() : null)
+                .leaseExpiresAt(order.getLeaseExpiresAt())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .items(order.getOrderItems() != null ? order.getOrderItems().stream().map(item -> OrderItemDto.builder()
@@ -209,6 +228,10 @@ public class OrderService {
                         .discountAmount(item.getDiscountAmount())
                         .totalPrice(item.getTotalPrice())
                         .allowSubstitution(item.getAllowSubstitution())
+                        .pickedQuantity(item.getPickedQuantity())
+                        .isSubstituted(item.getIsSubstituted())
+                        .substitutedVariantId(item.getSubstitutedVariant() != null ? item.getSubstitutedVariant().getId() : null)
+                        .substitutionReason(item.getSubstitutionReason())
                         .build()).collect(Collectors.toList()) : null)
                 .build();
     }

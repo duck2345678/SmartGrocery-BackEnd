@@ -81,6 +81,7 @@ public class ProductService {
                         .unit(v.getUnit())
                         .packageSize(v.getPackageSize())
                         .weightGram(v.getWeightGram())
+                        .aisleLocation(v.getAisleLocation())
                         .netPrice(v.getNetPrice())
                         .compareAtPrice(v.getCompareAtPrice())
                         .vatPercent(v.getVatPercent())

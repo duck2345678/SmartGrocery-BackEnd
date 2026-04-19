@@ -1,0 +1,2 @@
+ALTER TABLE cart_items ADD COLUMN allow_substitution BOOLEAN NOT NULL DEFAULT FALSE;
+
