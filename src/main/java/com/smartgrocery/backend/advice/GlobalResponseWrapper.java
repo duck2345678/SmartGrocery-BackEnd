@@ -33,6 +33,11 @@ public class GlobalResponseWrapper implements ResponseBodyAdvice<Object> {
             ServerHttpRequest request,
             ServerHttpResponse response
     ) {
+        String path = request != null && request.getURI() != null ? request.getURI().getPath() : null;
+        if (path != null && path.startsWith("/api/v1/staff/")) {
+            return body;
+        }
+
         if (body instanceof ApiResponse) {
             return body;
         }

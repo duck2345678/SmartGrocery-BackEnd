@@ -15,6 +15,7 @@ public class StaffPickItemDto {
     private Long orderItemId;
     private Long variantId;
     private String sku;
+    private String barcode;
     private String productName;
     private String variantName;
     private String aisleLocation;
@@ -23,4 +24,3 @@ public class StaffPickItemDto {
     private Boolean allowSubstitution;
     private BigDecimal unitPrice;
 }
-

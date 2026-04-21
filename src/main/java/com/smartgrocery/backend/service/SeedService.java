@@ -1,5 +1,7 @@
 package com.smartgrocery.backend.service;
 
+import com.smartgrocery.backend.dto.CreateOrderRequest;
+import com.smartgrocery.backend.dto.OrderItemRequest;
 import com.smartgrocery.backend.entity.*;
 import com.smartgrocery.backend.entity.graph.ProductNode;
 import com.smartgrocery.backend.repository.*;
@@ -14,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -57,6 +60,12 @@ public class SeedService {
 
     @Autowired
     private InventoryStockRepository inventoryStockRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private OrderService orderService;
 
     private TransactionTemplate neo4jTransactionTemplate;
 
@@ -220,6 +229,40 @@ public class SeedService {
         }
         if (createdCount > 0) System.out.println(">> Seeded Catalog (10 products + inventory)!");
 
+        // 5.1 Long-name product for UI overflow testing
+        Product longNameProduct = productRepository.findByProductCode("P_LONG_NAME")
+                .orElseGet(() -> productRepository.save(Product.builder()
+                        .productCode("P_LONG_NAME")
+                        .name("Nước rửa chén siêu đậm đặc hương chanh tươi mát phiên bản giới hạn dùng để test tên sản phẩm dài 3 dòng trên UI")
+                        .category(staple)
+                        .shortDescription("Dùng để test overflow/ellipsis UI")
+                        .status("ACTIVE")
+                        .isFeatured(false)
+                        .build()));
+
+        ProductVariant longNameVariant = productVariantRepository.findBySku("SKU_LONG_001")
+                .orElseGet(() -> productVariantRepository.save(ProductVariant.builder()
+                        .product(longNameProduct)
+                        .sku("SKU_LONG_001")
+                        .barcode("BAR_LONG_001")
+                        .variantName("Chai 750ml")
+                        .unit("BOTTLE")
+                        .aisleLocation("Z9")
+                        .netPrice(BigDecimal.valueOf(89000))
+                        .status("ACTIVE")
+                        .build()));
+
+        inventoryStockRepository.findByWarehouseIdAndVariantId(mainWarehouse.getId(), longNameVariant.getId())
+                .orElseGet(() -> inventoryStockRepository.save(InventoryStock.builder()
+                        .warehouse(mainWarehouse)
+                        .variant(longNameVariant)
+                        .availableQuantity(200)
+                        .reservedQuantity(0)
+                        .build()));
+
+        // 5.2 Fulfillment test orders (real DB data for Staff UI testing)
+        seedFulfillmentOrdersIfNeeded(longNameVariant.getId());
+
         // 6. Graph (Neo4j)
         neo4jTransactionTemplate.executeWithoutResult(status -> {
             if (productNodeRepository.count() == 0) {
@@ -233,5 +276,78 @@ public class SeedService {
                 System.out.println(">> Synchronized Neo4j!");
             }
         });
+    }
+
+    private void seedFulfillmentOrdersIfNeeded(Long longNameVariantId) {
+        if (orderRepository.count() >= 6) {
+            return;
+        }
+
+        User customer = userRepository.findByEmail("customer.p0@smartgrocery.com").orElse(null);
+        if (customer == null) return;
+
+        Long addressId = userAddressRepository.findByUser_Id(customer.getId()).stream()
+                .findFirst()
+                .map(UserAddress::getId)
+                .orElse(null);
+
+        List<ProductVariant> baseVariants = List.of(
+                productVariantRepository.findBySku("SKU_B001").orElse(null),
+                productVariantRepository.findBySku("SKU_V002").orElse(null),
+                productVariantRepository.findBySku("SKU_V003").orElse(null),
+                productVariantRepository.findBySku("SKU_F001").orElse(null),
+                productVariantRepository.findBySku("SKU_F002").orElse(null),
+                productVariantRepository.findBySku("SKU_F003").orElse(null),
+                productVariantRepository.findBySku("SKU_D001").orElse(null),
+                productVariantRepository.findBySku("SKU_D002").orElse(null),
+                productVariantRepository.findBySku("SKU_M001").orElse(null),
+                productVariantRepository.findBySku("SKU_S001").orElse(null)
+        ).stream().filter(v -> v != null).toList();
+
+        if (baseVariants.size() < 6) return;
+
+        createSeedOrder(customer, addressId, "COD", "SEED_UI_SMALL_1_ITEM", List.of(
+                OrderItemRequest.builder()
+                        .variantId(baseVariants.getFirst().getId())
+                        .quantity(1)
+                        .allowSubstitution(false)
+                        .build()
+        ));
+
+        createSeedOrder(customer, addressId, "COD", "SEED_UI_MIXED_ALLOW_SUB", List.of(
+                OrderItemRequest.builder().variantId(baseVariants.get(1).getId()).quantity(2).allowSubstitution(true).build(),
+                OrderItemRequest.builder().variantId(baseVariants.get(2).getId()).quantity(1).allowSubstitution(false).build(),
+                OrderItemRequest.builder().variantId(baseVariants.get(3).getId()).quantity(1).allowSubstitution(true).build(),
+                OrderItemRequest.builder().variantId(baseVariants.get(4).getId()).quantity(3).allowSubstitution(false).build(),
+                OrderItemRequest.builder().variantId(baseVariants.get(5).getId()).quantity(1).allowSubstitution(true).build()
+        ));
+
+        createSeedOrder(customer, addressId, "COD", "SEED_UI_LONG_NAME_OVERFLOW", List.of(
+                OrderItemRequest.builder().variantId(longNameVariantId).quantity(1).allowSubstitution(false).build(),
+                OrderItemRequest.builder().variantId(baseVariants.get(6).getId()).quantity(1).allowSubstitution(false).build()
+        ));
+
+        List<OrderItemRequest> bigItems = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            ProductVariant v = baseVariants.get(i % baseVariants.size());
+            bigItems.add(OrderItemRequest.builder()
+                    .variantId(v.getId())
+                    .quantity(1)
+                    .allowSubstitution(i % 3 == 0)
+                    .build());
+        }
+        createSeedOrder(customer, addressId, "COD", "SEED_UI_BIG_50_LINES", bigItems);
+    }
+
+    private void createSeedOrder(User customer, Long addressId, String paymentMethod, String note, List<OrderItemRequest> items) {
+        try {
+            CreateOrderRequest req = new CreateOrderRequest();
+            req.setAddressId(addressId);
+            req.setPaymentMethod(paymentMethod);
+            req.setCustomerNote(note);
+            req.setItems(items);
+            orderService.createOrder(customer, req);
+        } catch (Exception ignored) {
+        }
     }
 }

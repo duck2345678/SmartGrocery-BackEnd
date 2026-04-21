@@ -320,6 +320,7 @@ public class StaffOrderFlowService {
                 .orderItemId(item.getId())
                 .variantId(item.getVariant().getId())
                 .sku(item.getSku())
+                .barcode(item.getVariant() != null ? item.getVariant().getBarcode() : null)
                 .productName(item.getProductName())
                 .variantName(item.getVariantName())
                 .aisleLocation(item.getVariant().getAisleLocation())
