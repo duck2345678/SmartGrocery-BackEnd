@@ -120,7 +120,7 @@ public class AIServiceNudgeTest {
         List<AINudgeDto> nudges = service.getNudges(1L);
 
         assertEquals(1, nudges.size());
-        AINudgeDto dto = nudges.getFirst();
+        AINudgeDto dto = nudges.get(0);
         assertEquals(101L, dto.getProductId());
         assertNotNull(dto.getReason());
         assertTrue(dto.getReason().toLowerCase().contains("đã"));
@@ -148,7 +148,7 @@ public class AIServiceNudgeTest {
         List<AINudgeDto> nudges = service.getNudges(1L);
 
         assertEquals(1, nudges.size());
-        AINudgeDto dto = nudges.getFirst();
+        AINudgeDto dto = nudges.get(0);
         assertEquals(205L, dto.getProductId());
         assertNotNull(dto.getReason());
         assertTrue(dto.getReason().contains("mỗi"));

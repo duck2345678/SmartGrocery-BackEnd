@@ -1,6 +1,8 @@
 package com.smartgrocery.backend.repository;
 import com.smartgrocery.backend.entity.ChatMessage;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -8,4 +10,15 @@ import java.util.List;
 @Repository
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
     List<ChatMessage> findByChatSession_IdOrderByCreatedAtAsc(Long sessionId);
+
+    @Query("""
+            select m.content, count(m)
+            from ChatMessage m
+            where lower(m.role) = 'user'
+              and m.content is not null
+              and length(trim(m.content)) > 0
+            group by m.content
+            order by count(m) desc
+            """)
+    List<Object[]> topUserQueries(Pageable pageable);
 }

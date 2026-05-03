@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -34,16 +35,26 @@ public class FcmService {
      * Sends a push notification to multiple tokens (Multicast).
      */
     public void sendMulticastNotification(List<String> tokens, String title, String body) {
+        sendMulticastNotification(tokens, title, body, null);
+    }
+
+    public void sendMulticastNotification(List<String> tokens, String title, String body, Map<String, String> data) {
         if (tokens == null || tokens.isEmpty()) return;
 
         try {
-            MulticastMessage message = MulticastMessage.builder()
+            MulticastMessage.Builder builder = MulticastMessage.builder()
                     .addAllTokens(tokens)
                     .setNotification(Notification.builder()
                             .setTitle(title)
                             .setBody(body)
                             .build())
-                    .build();
+                    ;
+
+            if (data != null && !data.isEmpty()) {
+                builder.putAllData(data);
+            }
+
+            MulticastMessage message = builder.build();
 
             BatchResponse response = FirebaseMessaging.getInstance().sendEachForMulticast(message);
             log.info("Multicast sent: {} success, {} failure", response.getSuccessCount(), response.getFailureCount());

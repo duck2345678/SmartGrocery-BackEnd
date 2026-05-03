@@ -16,8 +16,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class SeedService {
@@ -192,6 +194,12 @@ public class SeedService {
         );
 
         int createdCount = 0;
+        Map<String, BigDecimal> compareAtPriceBySku = new HashMap<>();
+        compareAtPriceBySku.put("SKU_B001", BigDecimal.valueOf(39000));   // Bông cải xanh: 30k -> 39k
+        compareAtPriceBySku.put("SKU_F001", BigDecimal.valueOf(82000));   // Táo đỏ Mỹ: 68k -> 82k
+        compareAtPriceBySku.put("SKU_D001", BigDecimal.valueOf(39000));   // Sữa tươi không đường: 33k -> 39k
+        compareAtPriceBySku.put("SKU_M001", BigDecimal.valueOf(89000));   // Thịt heo ba rọi: 75k -> 89k
+        compareAtPriceBySku.put("SKU_S001", BigDecimal.valueOf(185000));  // Gạo ST25: 165k -> 185k
         for (SeedProduct sp : catalog) {
             Product product = productRepository.findByProductCode(sp.code)
                     .orElseGet(() -> {
@@ -216,6 +224,15 @@ public class SeedService {
                             .netPrice(sp.price)
                             .status("ACTIVE")
                             .build()));
+
+            // Ensure several products always have real discount prices in DB for Home "Giảm giá hot".
+            BigDecimal compareAtPrice = compareAtPriceBySku.get(sp.sku);
+            if (compareAtPrice != null && compareAtPrice.compareTo(sp.price) > 0) {
+                if (variant.getCompareAtPrice() == null || variant.getCompareAtPrice().compareTo(compareAtPrice) != 0) {
+                    variant.setCompareAtPrice(compareAtPrice);
+                    productVariantRepository.save(variant);
+                }
+            }
 
             inventoryStockRepository.findByWarehouseIdAndVariantId(mainWarehouse.getId(), variant.getId())
                     .orElseGet(() -> inventoryStockRepository.save(InventoryStock.builder()
@@ -308,7 +325,7 @@ public class SeedService {
 
         createSeedOrder(customer, addressId, "COD", "SEED_UI_SMALL_1_ITEM", List.of(
                 OrderItemRequest.builder()
-                        .variantId(baseVariants.getFirst().getId())
+                        .variantId(baseVariants.get(0).getId())
                         .quantity(1)
                         .allowSubstitution(false)
                         .build()

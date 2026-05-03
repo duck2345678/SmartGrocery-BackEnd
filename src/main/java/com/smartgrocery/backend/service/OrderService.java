@@ -12,8 +12,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -52,6 +54,15 @@ public class OrderService {
 
     @Autowired
     private WarehouseRepository warehouseRepository;
+
+    @Autowired
+    private AutoOrderDispatchService autoOrderDispatchService;
+
+    @Autowired
+    private VoucherRepository voucherRepository;
+
+    @Autowired
+    private UserVoucherUsageRepository userVoucherUsageRepository;
 
     @Transactional(rollbackFor = Exception.class)
     public OrderDto createOrder(User user, CreateOrderRequest request) {
@@ -144,18 +155,34 @@ public class OrderService {
             subtotal = subtotal.add(itemTotal);
         }
 
-        // 4. Finalize Totals
+        // 4. Apply voucher (optional)
+        BigDecimal discount = BigDecimal.ZERO;
+        if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
+            Voucher voucher = voucherRepository.findByVoucherCode(request.getVoucherCode().trim())
+                    .orElseThrow(() -> new RuntimeException("Voucher không tồn tại"));
+            validateVoucher(voucher, subtotal);
+            discount = computeDiscount(voucher, subtotal);
+            voucher.setUsageCount((voucher.getUsageCount() != null ? voucher.getUsageCount() : 0) + 1);
+            voucherRepository.save(voucher);
+            upsertUserVoucherUsage(user, voucher);
+        }
+
+        // 5. Finalize Totals
         savedOrder.setOrderItems(orderItems);
         savedOrder.setSubtotal(subtotal);
-        savedOrder.setTotalAmount(subtotal.add(savedOrder.getShippingFee()));
+        savedOrder.setDiscountAmount(discount);
+        BigDecimal gross = subtotal.add(savedOrder.getShippingFee());
+        BigDecimal finalAmount = gross.subtract(discount);
+        if (finalAmount.compareTo(BigDecimal.ZERO) < 0) finalAmount = BigDecimal.ZERO;
+        savedOrder.setTotalAmount(finalAmount);
         orderRepository.save(savedOrder);
 
-        // 5. Sync: Clear DB Cart for this user
+        // 6. Sync: Clear DB Cart for this user
         cartRepository.findByUserId(user.getId()).ifPresent(cart -> {
             cartItemRepository.deleteAll(cartItemRepository.findByCart_Id(cart.getId()));
         });
 
-        // 6. Create Initial Payment Record
+        // 7. Create Initial Payment Record
         Payment payment = Payment.builder()
                 .order(savedOrder)
                 .paymentMethod(request.getPaymentMethod())
@@ -164,15 +191,21 @@ public class OrderService {
                 .build();
         paymentRepository.save(payment);
 
-        // 7. Notify Staff about new order
+        // 8. Auto-dispatch: assign to the least-loaded staff first
+        boolean assigned = autoOrderDispatchService != null && autoOrderDispatchService.tryAutoAssign(savedOrder.getId());
+
+        // 9. Fallback notify all staff if no assignee is available
         try {
-            List<User> staffMembers = userRepository.findByRole_Name("STAFF");
-            notificationService.notifyStaff(
-                    "Đơn hàng mới: " + savedOrder.getOrderNumber(),
-                    "Khách hàng " + savedOrder.getUser().getFullName() + " vừa đặt một đơn hàng mới.",
-                    "NEW_ORDER",
-                    staffMembers
-            );
+            if (!assigned) {
+                List<User> staffMembers = userRepository.findByRole_NameAndStatus("STAFF", "ACTIVE");
+                notificationService.notifyStaff(
+                        "Đơn hàng mới: " + savedOrder.getOrderNumber(),
+                        "Khách hàng " + savedOrder.getUser().getFullName() + " vừa đặt một đơn hàng mới.",
+                        "NEW_ORDER",
+                        Map.of("route", "/(staff)/lease-queue", "type", "NEW_ORDER"),
+                        staffMembers
+                );
+            }
         } catch (Exception e) {
             // Don't fail the order if notification fails
         }
@@ -234,5 +267,50 @@ public class OrderService {
                         .substitutionReason(item.getSubstitutionReason())
                         .build()).collect(Collectors.toList()) : null)
                 .build();
+    }
+
+    private void validateVoucher(Voucher voucher, BigDecimal subtotal) {
+        LocalDateTime now = LocalDateTime.now();
+        if (!Boolean.TRUE.equals(voucher.getActive())) {
+            throw new RuntimeException("Voucher đã bị vô hiệu");
+        }
+        if (voucher.getValidFrom() != null && voucher.getValidFrom().isAfter(now)) {
+            throw new RuntimeException("Voucher chưa đến thời gian áp dụng");
+        }
+        if (voucher.getValidUntil() != null && voucher.getValidUntil().isBefore(now)) {
+            throw new RuntimeException("Voucher đã hết hạn");
+        }
+        if (voucher.getUsageLimit() != null && voucher.getUsageCount() != null && voucher.getUsageCount() >= voucher.getUsageLimit()) {
+            throw new RuntimeException("Voucher đã hết lượt sử dụng");
+        }
+        if (voucher.getMinOrderAmount() != null && subtotal.compareTo(voucher.getMinOrderAmount()) < 0) {
+            throw new RuntimeException("Đơn hàng chưa đạt mức tối thiểu để áp dụng voucher");
+        }
+    }
+
+    private BigDecimal computeDiscount(Voucher voucher, BigDecimal subtotal) {
+        if (subtotal.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
+        BigDecimal value = voucher.getDiscountValue() != null ? voucher.getDiscountValue() : BigDecimal.ZERO;
+        BigDecimal discount;
+        if ("PERCENTAGE".equalsIgnoreCase(voucher.getDiscountType())) {
+            discount = subtotal.multiply(value).divide(BigDecimal.valueOf(100));
+        } else {
+            discount = value;
+        }
+        if (voucher.getMaxDiscountAmount() != null && discount.compareTo(voucher.getMaxDiscountAmount()) > 0) {
+            discount = voucher.getMaxDiscountAmount();
+        }
+        if (discount.compareTo(subtotal) > 0) {
+            discount = subtotal;
+        }
+        return discount.max(BigDecimal.ZERO);
+    }
+
+    private void upsertUserVoucherUsage(User user, Voucher voucher) {
+        UserVoucherUsage usage = userVoucherUsageRepository.findByUser_IdAndVoucher_Id(user.getId(), voucher.getId())
+                .orElse(UserVoucherUsage.builder().user(user).voucher(voucher).usedCount(0).build());
+        usage.setUsedCount((usage.getUsedCount() != null ? usage.getUsedCount() : 0) + 1);
+        usage.setUpdatedAt(LocalDateTime.now());
+        userVoucherUsageRepository.save(usage);
     }
 }

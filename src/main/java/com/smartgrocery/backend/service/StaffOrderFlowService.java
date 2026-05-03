@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Comparator;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -64,6 +65,18 @@ public class StaffOrderFlowService {
         return orderRepository.findQueueForAssignment(STATUS_PENDING, now).stream()
                 .map(this::toStaffOrderDto)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
+    public Optional<StaffOrderDto> getMyActiveOrder(User staffUser) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        return orderRepository.findActiveLeaseOrdersByStaff(
+                        staffUser.getId(),
+                        List.of(STATUS_ASSIGNED, STATUS_PICKING),
+                        now
+                ).stream()
+                .findFirst()
+                .map(this::toStaffOrderDto);
     }
 
     @Transactional(value = "transactionManager")
@@ -272,11 +285,24 @@ public class StaffOrderFlowService {
         List<ProductVariant> candidates = productVariantRepository
                 .findTop50ByProduct_Category_IdAndStatusAndNetPriceLessThanEqualOrderByNetPriceDesc(categoryId, "ACTIVE", originalUnitPrice);
 
+        List<Long> candidateIds = candidates.stream()
+                .map(ProductVariant::getId)
+                .filter(Objects::nonNull)
+                .filter(id -> originalVariantId == null || !Objects.equals(id, originalVariantId))
+                .toList();
+
+        Map<Long, Integer> stockByVariantId = candidateIds.isEmpty()
+                ? Map.of()
+                : inventoryStockRepository.sumAvailableByVariantIds(candidateIds).stream()
+                .collect(Collectors.toMap(
+                        InventoryStockRepository.VariantStockSum::getVariantId,
+                        x -> x.getTotalAvailable() != null ? x.getTotalAvailable().intValue() : 0
+                ));
+
         List<StaffSubstitutionOptionDto> options = candidates.stream()
                 .filter(v -> originalVariantId == null || !Objects.equals(v.getId(), originalVariantId))
                 .map(v -> {
-                    Long sum = inventoryStockRepository.sumAvailableByVariantId(v.getId());
-                    int stock = sum != null ? sum.intValue() : 0;
+                    int stock = stockByVariantId.getOrDefault(v.getId(), 0);
                     String name = v.getProduct() != null
                             ? (v.getProduct().getName() + (v.getVariantName() != null ? " • " + v.getVariantName() : ""))
                             : (v.getVariantName() != null ? v.getVariantName() : ("Variant " + v.getId()));
@@ -296,7 +322,7 @@ public class StaffOrderFlowService {
                 .collect(Collectors.toList());
 
         if (!options.isEmpty()) {
-            options.getFirst().setIsRecommended(true);
+            options.get(0).setIsRecommended(true);
         }
 
         return options;

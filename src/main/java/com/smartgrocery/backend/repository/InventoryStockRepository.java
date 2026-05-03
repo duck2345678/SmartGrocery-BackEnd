@@ -14,6 +14,11 @@ import java.util.Optional;
 
 @Repository
 public interface InventoryStockRepository extends JpaRepository<InventoryStock, Long> {
+    interface VariantStockSum {
+        Long getVariantId();
+        Long getTotalAvailable();
+    }
+
     List<InventoryStock> findByWarehouseId(Long warehouseId);
     
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -26,4 +31,13 @@ public interface InventoryStockRepository extends JpaRepository<InventoryStock, 
 
     @Query("select coalesce(sum(coalesce(s.availableQuantity, 0)), 0) from InventoryStock s where s.variant.id = :variantId")
     Long sumAvailableByVariantId(@Param("variantId") Long variantId);
+
+    @Query("""
+            select s.variant.id as variantId,
+                   coalesce(sum(coalesce(s.availableQuantity, 0)), 0) as totalAvailable
+            from InventoryStock s
+            where s.variant.id in :variantIds
+            group by s.variant.id
+            """)
+    List<VariantStockSum> sumAvailableByVariantIds(@Param("variantIds") List<Long> variantIds);
 }

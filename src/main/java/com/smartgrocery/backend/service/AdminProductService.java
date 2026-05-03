@@ -138,7 +138,7 @@ public class AdminProductService {
 
         List<ProductVariant> variants = productVariantRepository.findByProduct_Id(productId);
         if (!variants.isEmpty()) {
-            ProductVariant v = variants.getFirst();
+            ProductVariant v = variants.get(0);
             if (req.getSku() != null && !req.getSku().isBlank() && !req.getSku().equals(v.getSku())) {
                 productVariantRepository.findBySku(req.getSku()).ifPresent(existing -> {
                     throw new IllegalArgumentException("SKU đã tồn tại");

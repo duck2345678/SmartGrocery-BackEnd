@@ -40,6 +40,13 @@ public class StaffOrderController {
         return ResponseEntity.ok(staffOrderFlowService.getQueue());
     }
 
+    @Operation(summary = "Đơn đang được phân cho chính staff hiện tại (ASSIGNED/PICKING + lease còn hạn)")
+    @GetMapping("/my-active")
+    public ResponseEntity<StaffOrderDto> getMyActive(@AuthenticationPrincipal User user) {
+        assertStaffRole();
+        return ResponseEntity.of(staffOrderFlowService.getMyActiveOrder(user));
+    }
+
     @Operation(summary = "Nhận đơn (assign lease 10 phút)")
     @PostMapping("/{orderId}/assign")
     public ResponseEntity<AssignOrderResponse> assign(

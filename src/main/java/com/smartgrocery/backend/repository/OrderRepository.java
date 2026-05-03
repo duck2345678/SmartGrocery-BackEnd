@@ -78,4 +78,61 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
            order by o.createdAt asc
            """)
     List<Order> findQueueForAssignment(@Param("pendingStatus") String pendingStatus, @Param("now") LocalDateTime now);
+
+    @Query("""
+           select o from Order o
+           where o.status = :assignedStatus
+             and o.assignee is not null
+           order by o.updatedAt asc
+           """)
+    List<Order> findAssignedOrders(@Param("assignedStatus") String assignedStatus);
+
+    @Modifying
+    @Query("""
+           update Order o
+           set o.assignee = null,
+               o.leaseExpiresAt = null,
+               o.status = :pendingStatus
+           where o.status in :activeStatuses
+             and o.leaseExpiresAt is not null
+             and o.leaseExpiresAt < :now
+           """)
+    int releaseExpiredLeases(
+            @Param("pendingStatus") String pendingStatus,
+            @Param("activeStatuses") List<String> activeStatuses,
+            @Param("now") LocalDateTime now
+    );
+
+    @Query("""
+           select count(o) from Order o
+           where o.assignee.id = :staffId
+             and o.status in :activeStatuses
+             and o.leaseExpiresAt is not null
+             and o.leaseExpiresAt >= :now
+           """)
+    long countActiveAssignments(
+            @Param("staffId") Long staffId,
+            @Param("activeStatuses") List<String> activeStatuses,
+            @Param("now") LocalDateTime now
+    );
+
+    @Query("""
+           select max(o.createdAt) from Order o
+           where o.assignee.id = :staffId
+           """)
+    LocalDateTime findLastAssignedAt(@Param("staffId") Long staffId);
+
+    @Query("""
+           select o from Order o
+           where o.assignee.id = :staffId
+             and o.status in :activeStatuses
+             and o.leaseExpiresAt is not null
+             and o.leaseExpiresAt >= :now
+           order by o.updatedAt desc
+           """)
+    List<Order> findActiveLeaseOrdersByStaff(
+            @Param("staffId") Long staffId,
+            @Param("activeStatuses") List<String> activeStatuses,
+            @Param("now") LocalDateTime now
+    );
 }

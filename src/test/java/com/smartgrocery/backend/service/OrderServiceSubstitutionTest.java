@@ -81,7 +81,6 @@ public class OrderServiceSubstitutionTest {
         when(inventoryStockRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(cartRepository.findByUserId(1L)).thenReturn(Optional.empty());
-        when(userRepository.findByRole_Name("STAFF")).thenReturn(List.of());
 
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);
@@ -154,7 +153,6 @@ public class OrderServiceSubstitutionTest {
 
         when(inventoryStockRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(paymentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(userRepository.findByRole_Name("STAFF")).thenReturn(List.of());
 
         when(orderRepository.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);

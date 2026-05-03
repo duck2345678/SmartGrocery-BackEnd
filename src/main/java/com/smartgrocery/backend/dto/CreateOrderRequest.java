@@ -7,6 +7,7 @@ import java.util.List;
 public class CreateOrderRequest {
     private Long addressId;
     private String paymentMethod;
+    private String voucherCode;
     private String customerNote;
     private List<OrderItemRequest> items;
 }

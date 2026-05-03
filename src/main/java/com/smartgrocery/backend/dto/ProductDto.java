@@ -25,6 +25,7 @@ public class ProductDto {
     private CategoryDto category;
     private BrandDto brand;
     private List<ProductVariantDto> variants;
+    private Long purchaseCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
