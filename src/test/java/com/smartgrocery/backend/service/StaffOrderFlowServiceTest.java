@@ -2,6 +2,8 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.AssignOrderResponse;
 import com.smartgrocery.backend.dto.CompletePickingRequest;
+import com.smartgrocery.backend.dto.StaffPerformanceDailyDto;
+import com.smartgrocery.backend.dto.StaffPerformanceSummaryDto;
 import com.smartgrocery.backend.entity.InventoryStock;
 import com.smartgrocery.backend.entity.Order;
 import com.smartgrocery.backend.entity.OrderItem;
@@ -17,11 +19,13 @@ import com.smartgrocery.backend.repository.WarehouseRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -173,5 +177,50 @@ public class StaffOrderFlowServiceTest {
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.completePicking(99L, staff, req));
         assertTrue(ex.getMessage().toLowerCase().contains("giá thay thế"));
+    }
+
+    @Test
+    void getPerformanceDailyUsesPickedStatusAndDateRange() {
+        StaffOrderFlowService service = newService();
+        User staff = User.builder().id(5L).build();
+        LocalDate date = LocalDate.of(2026, 4, 18);
+
+        List<Order> orders = List.of(
+                Order.builder().id(1L).orderNumber("SG-001").status("PICKED").updatedAt(LocalDateTime.of(2026, 4, 18, 9, 0)).build(),
+                Order.builder().id(2L).orderNumber("SG-002").status("PICKED").updatedAt(LocalDateTime.of(2026, 4, 18, 12, 30)).build()
+        );
+
+        when(orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(anyLong(), anyString(), any(), any())).thenReturn(2L);
+        when(orderRepository.findCompletedOrdersByStaffAndUpdatedAtRange(anyLong(), anyString(), any(), any())).thenReturn(orders);
+
+        StaffPerformanceDailyDto dto = service.getPerformanceDaily(staff, date);
+        assertEquals(date, dto.getDate());
+        assertEquals(2L, dto.getCompletedCount());
+        assertEquals(2, dto.getOrders().size());
+
+        ArgumentCaptor<LocalDateTime> fromCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> toCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(orderRepository).countCompletedOrdersByStaffAndUpdatedAtRange(eq(5L), eq("PICKED"), fromCaptor.capture(), toCaptor.capture());
+        assertEquals(LocalDateTime.of(2026, 4, 18, 0, 0), fromCaptor.getValue());
+        assertEquals(LocalDateTime.of(2026, 4, 19, 0, 0), toCaptor.getValue());
+    }
+
+    @Test
+    void getPerformanceSummaryReturnsWeekAndMonthCounts() {
+        StaffOrderFlowService service = newService();
+        User staff = User.builder().id(5L).build();
+        LocalDate date = LocalDate.of(2026, 4, 19);
+
+        when(orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(anyLong(), anyString(), any(), any()))
+                .thenReturn(3L, 10L);
+
+        StaffPerformanceSummaryDto dto = service.getPerformanceSummary(staff, date);
+        assertEquals(date, dto.getDate());
+        assertEquals(LocalDate.of(2026, 4, 13), dto.getWeekFrom());
+        assertEquals(LocalDate.of(2026, 4, 19), dto.getWeekTo());
+        assertEquals(3L, dto.getWeekCompletedCount());
+        assertEquals(LocalDate.of(2026, 4, 1), dto.getMonthFrom());
+        assertEquals(LocalDate.of(2026, 4, 30), dto.getMonthTo());
+        assertEquals(10L, dto.getMonthCompletedCount());
     }
 }

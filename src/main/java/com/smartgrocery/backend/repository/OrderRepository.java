@@ -135,4 +135,33 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             @Param("activeStatuses") List<String> activeStatuses,
             @Param("now") LocalDateTime now
     );
+
+    @Query("""
+           select o from Order o
+           where o.assignee.id = :staffId
+             and o.status = :completedStatus
+             and o.updatedAt >= :from
+             and o.updatedAt < :to
+           order by o.updatedAt desc
+           """)
+    List<Order> findCompletedOrdersByStaffAndUpdatedAtRange(
+            @Param("staffId") Long staffId,
+            @Param("completedStatus") String completedStatus,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    @Query("""
+           select count(o) from Order o
+           where o.assignee.id = :staffId
+             and o.status = :completedStatus
+             and o.updatedAt >= :from
+             and o.updatedAt < :to
+           """)
+    long countCompletedOrdersByStaffAndUpdatedAtRange(
+            @Param("staffId") Long staffId,
+            @Param("completedStatus") String completedStatus,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
 }

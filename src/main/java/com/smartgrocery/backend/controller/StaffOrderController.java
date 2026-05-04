@@ -4,6 +4,8 @@ import com.smartgrocery.backend.dto.AssignOrderResponse;
 import com.smartgrocery.backend.dto.CompletePickingRequest;
 import com.smartgrocery.backend.dto.StaffPickOrderDto;
 import com.smartgrocery.backend.dto.StaffOrderDto;
+import com.smartgrocery.backend.dto.StaffPerformanceDailyDto;
+import com.smartgrocery.backend.dto.StaffPerformanceSummaryDto;
 import com.smartgrocery.backend.dto.StaffSubstitutionOptionDto;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.security.SecurityUtils;
@@ -11,11 +13,13 @@ import com.smartgrocery.backend.service.StaffOrderFlowService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @CrossOrigin(origins = "*")
@@ -107,5 +111,25 @@ public class StaffOrderController {
     ) {
         assertStaffRole();
         return ResponseEntity.ok(staffOrderFlowService.getSubstitutions(orderId, orderItemId, user));
+    }
+
+    @Operation(summary = "Hiệu suất theo ngày: số đơn hoàn thành + danh sách chi tiết")
+    @GetMapping("/performance/daily")
+    public ResponseEntity<StaffPerformanceDailyDto> performanceDaily(
+            @AuthenticationPrincipal User user,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date
+    ) {
+        assertStaffRole();
+        return ResponseEntity.ok(staffOrderFlowService.getPerformanceDaily(user, date));
+    }
+
+    @Operation(summary = "Hiệu suất tổng quan theo tuần/tháng cho ngày được chọn")
+    @GetMapping("/performance/summary")
+    public ResponseEntity<StaffPerformanceSummaryDto> performanceSummary(
+            @AuthenticationPrincipal User user,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date
+    ) {
+        assertStaffRole();
+        return ResponseEntity.ok(staffOrderFlowService.getPerformanceSummary(user, date));
     }
 }

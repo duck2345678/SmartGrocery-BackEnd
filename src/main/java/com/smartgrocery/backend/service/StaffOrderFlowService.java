@@ -5,6 +5,9 @@ import com.smartgrocery.backend.dto.CompletePickingRequest;
 import com.smartgrocery.backend.dto.StaffPickItemDto;
 import com.smartgrocery.backend.dto.StaffPickOrderDto;
 import com.smartgrocery.backend.dto.StaffOrderDto;
+import com.smartgrocery.backend.dto.StaffPerformanceDailyDto;
+import com.smartgrocery.backend.dto.StaffPerformanceOrderDto;
+import com.smartgrocery.backend.dto.StaffPerformanceSummaryDto;
 import com.smartgrocery.backend.dto.StaffSubstitutionOptionDto;
 import com.smartgrocery.backend.entity.InventoryStock;
 import com.smartgrocery.backend.entity.Order;
@@ -24,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +36,7 @@ import java.util.Objects;
 import java.util.Comparator;
 import java.util.Optional;
 import java.util.Set;
+import java.time.temporal.TemporalAdjusters;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,6 +45,7 @@ public class StaffOrderFlowService {
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_ASSIGNED = "ASSIGNED";
     private static final String STATUS_PICKING = "PICKING";
+    private static final String STATUS_PICKED = "PICKED";
     private static final int LEASE_MINUTES = 10;
 
     @Autowired
@@ -255,11 +262,80 @@ public class StaffOrderFlowService {
 
         order.setSubtotal(newSubtotal);
         order.setTotalAmount(newSubtotal.add(order.getShippingFee() != null ? order.getShippingFee() : BigDecimal.ZERO));
-        order.setStatus("PICKED");
+        order.setStatus(STATUS_PICKED);
         order.setLeaseExpiresAt(null);
         orderRepository.save(order);
 
         return getPickList(orderId, staffUser);
+    }
+
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
+    public StaffPerformanceDailyDto getPerformanceDaily(User staffUser, LocalDate date) {
+        LocalDate effectiveDate = date != null ? date : LocalDate.now(clock);
+        LocalDateTime from = effectiveDate.atStartOfDay();
+        LocalDateTime to = effectiveDate.plusDays(1).atStartOfDay();
+
+        long completedCount = orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(
+                staffUser.getId(),
+                STATUS_PICKED,
+                from,
+                to
+        );
+
+        List<StaffPerformanceOrderDto> orders = orderRepository.findCompletedOrdersByStaffAndUpdatedAtRange(
+                        staffUser.getId(),
+                        STATUS_PICKED,
+                        from,
+                        to
+                ).stream()
+                .limit(200)
+                .map(o -> StaffPerformanceOrderDto.builder()
+                        .orderId(o.getId())
+                        .orderNumber(o.getOrderNumber())
+                        .completedAt(o.getUpdatedAt())
+                        .status(o.getStatus())
+                        .build())
+                .collect(Collectors.toList());
+
+        return StaffPerformanceDailyDto.builder()
+                .date(effectiveDate)
+                .completedCount(completedCount)
+                .orders(orders)
+                .build();
+    }
+
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
+    public StaffPerformanceSummaryDto getPerformanceSummary(User staffUser, LocalDate date) {
+        LocalDate effectiveDate = date != null ? date : LocalDate.now(clock);
+
+        LocalDate weekFrom = effectiveDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate weekTo = weekFrom.plusDays(6);
+        LocalDate monthFrom = effectiveDate.withDayOfMonth(1);
+        LocalDate monthTo = monthFrom.plusMonths(1).minusDays(1);
+
+        long weekCompletedCount = orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(
+                staffUser.getId(),
+                STATUS_PICKED,
+                weekFrom.atStartOfDay(),
+                weekTo.plusDays(1).atStartOfDay()
+        );
+
+        long monthCompletedCount = orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(
+                staffUser.getId(),
+                STATUS_PICKED,
+                monthFrom.atStartOfDay(),
+                monthTo.plusDays(1).atStartOfDay()
+        );
+
+        return StaffPerformanceSummaryDto.builder()
+                .date(effectiveDate)
+                .weekFrom(weekFrom)
+                .weekTo(weekTo)
+                .weekCompletedCount(weekCompletedCount)
+                .monthFrom(monthFrom)
+                .monthTo(monthTo)
+                .monthCompletedCount(monthCompletedCount)
+                .build();
     }
 
     @Transactional(readOnly = true, transactionManager = "transactionManager")
