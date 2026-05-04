@@ -69,6 +69,12 @@ public class SeedService {
     @Autowired
     private OrderService orderService;
 
+    @Autowired
+    private ShiftScheduleRepository shiftScheduleRepository;
+
+    @Autowired
+    private AttendanceRecordRepository attendanceRecordRepository;
+
     private TransactionTemplate neo4jTransactionTemplate;
 
     @Autowired
@@ -293,6 +299,83 @@ public class SeedService {
                 System.out.println(">> Synchronized Neo4j!");
             }
         });
+
+        // 7. Seed Staff Shift Schedule and Attendance Records
+        User staff = userRepository.findByEmail("staff.p0@smartgrocery.com").orElse(null);
+        if (staff != null) {
+            java.time.LocalDate today = java.time.LocalDate.now();
+            
+            // Hàm helper để tạo lịch làm việc
+            java.util.function.BiConsumer<java.time.LocalDate, String> createShift = (date, type) -> {
+                if (shiftScheduleRepository.findByUserIdAndWorkDate(staff.getId(), date).isEmpty()) {
+                    shiftScheduleRepository.save(ShiftSchedule.builder()
+                            .user(staff)
+                            .workDate(date)
+                            .shiftType(type)
+                            .build());
+                }
+            };
+
+            // Hàm helper để tạo record chấm công giả lập
+            java.util.function.Consumer<AttendanceRecord> createRecord = (record) -> {
+                if (attendanceRecordRepository.findByUserIdAndWorkDateAndBlockNumber(
+                        record.getUser().getId(), record.getWorkDate(), record.getBlockNumber()).isEmpty()) {
+                    attendanceRecordRepository.save(record);
+                }
+            };
+
+            // 7.1 Lịch tương lai (SCHEDULED)
+            createShift.accept(today.plusDays(1), "S");
+            createShift.accept(today.plusDays(2), "C");
+            createShift.accept(today.plusDays(3), "G");
+            createShift.accept(today.plusDays(4), "OFF");
+
+            // 7.2 Lịch hôm nay (G) - Để test nút vào ca
+            createShift.accept(today, "G");
+
+            // 7.3 Lịch quá khứ đa dạng
+            java.time.LocalDate dayMinus1 = today.minusDays(1);
+            java.time.LocalDate dayMinus2 = today.minusDays(2);
+            java.time.LocalDate dayMinus3 = today.minusDays(3);
+            java.time.LocalDate dayMinus4 = today.minusDays(4);
+            java.time.LocalDate dayMinus5 = today.minusDays(5);
+
+            createShift.accept(dayMinus1, "S"); // Hôm qua: Đi đúng giờ, về đúng giờ (Xanh)
+            createShift.accept(dayMinus2, "C"); // Đi trễ (Cam)
+            createShift.accept(dayMinus3, "G"); // Ca Gãy: Thiếu 1 block (Cam)
+            createShift.accept(dayMinus4, "S"); // Vắng mặt (Đỏ - Có lịch nhưng ko checkin)
+            createShift.accept(dayMinus5, "OFF"); // Nghỉ (Trắng)
+
+            // Tạo các bản ghi chấm công (AttendanceRecord) cho các ngày quá khứ
+            // Day -1: Đúng giờ
+            createRecord.accept(AttendanceRecord.builder()
+                    .user(staff).workDate(dayMinus1).shiftType("S").blockNumber(1)
+                    .checkInAt(dayMinus1.atTime(6, 25))
+                    .checkOutAt(dayMinus1.atTime(14, 35))
+                    .checkInStatus("ON_TIME").checkOutStatus("ON_TIME")
+                    .build());
+
+            // Day -2: LATE
+            createRecord.accept(AttendanceRecord.builder()
+                    .user(staff).workDate(dayMinus2).shiftType("C").blockNumber(1)
+                    .checkInAt(dayMinus2.atTime(14, 50)) // Trễ so với 14:30
+                    .checkOutAt(dayMinus2.atTime(22, 35))
+                    .checkInStatus("LATE").checkOutStatus("ON_TIME")
+                    .build());
+
+            // Day -3: Ca Gãy, có block 1, ko có block 2 -> Incomplete -> Cam
+            createRecord.accept(AttendanceRecord.builder()
+                    .user(staff).workDate(dayMinus3).shiftType("G").blockNumber(1)
+                    .checkInAt(dayMinus3.atTime(6, 20))
+                    .checkOutAt(dayMinus3.atTime(10, 30))
+                    .checkInStatus("ON_TIME").checkOutStatus("ON_TIME")
+                    .build());
+            // (Không tạo block 2)
+
+            // Day -4: Có lịch nhưng ko tạo AttendanceRecord -> ABSENT -> Đỏ
+
+            System.out.println(">> Seeded diverse ShiftSchedules and AttendanceRecords for P0 Staff!");
+        }
     }
 
     private void seedFulfillmentOrdersIfNeeded(Long longNameVariantId) {
