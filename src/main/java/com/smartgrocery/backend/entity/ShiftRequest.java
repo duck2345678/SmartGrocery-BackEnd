@@ -14,14 +14,14 @@ import java.time.LocalDateTime;
 
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 @Entity
-@Table(name = "shift_schedules", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"user_id", "work_date"})
+@Table(name = "shift_requests", uniqueConstraints = {
+        @UniqueConstraint(columnNames = {"user_id", "work_date"})
 })
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ShiftSchedule {
+public class ShiftRequest {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -35,10 +35,16 @@ public class ShiftSchedule {
     private LocalDate workDate;
 
     @Column(name = "shift_type", nullable = false, length = 10)
-    private String shiftType; // 'S', 'C', 'G', 'P', 'F', 'OFF'
+    private String shiftType;
 
     @Column(name = "selected_blocks", length = 20)
     private String selectedBlocks;
+
+    @Column(name = "status", nullable = false, length = 20)
+    private String status;
+
+    @Column(name = "admin_note", columnDefinition = "TEXT")
+    private String adminNote;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -48,3 +54,4 @@ public class ShiftSchedule {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 }
+

@@ -33,7 +33,11 @@ public final class SecurityUtils {
         Set<String> roleSet = Set.of(roles);
         return authentication.getAuthorities().stream()
                 .map(a -> a.getAuthority())
-                .anyMatch(a -> a.startsWith("ROLE_") && roleSet.contains(a.substring("ROLE_".length())));
+                .anyMatch(authority -> {
+                    if (authority == null) return false;
+                    String normalized = authority.startsWith("ROLE_") ? authority.substring("ROLE_".length()) : authority;
+                    return roleSet.contains(normalized);
+                });
     }
 
     public static void verifyOwnershipOrAdmin(Long targetUserId) {

@@ -57,6 +57,9 @@ public class User implements UserDetails {
     @Column(name = "avatar_url", length = 500)
     private String avatarUrl;
 
+    @Column(name = "fcm_token", length = 500)
+    private String fcmToken;
+
     @Column(length = 20, nullable = false)
     @Builder.Default
     private String status = "ACTIVE";

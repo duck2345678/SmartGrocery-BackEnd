@@ -304,21 +304,33 @@ public class SeedService {
         User staff = userRepository.findByEmail("staff.p0@smartgrocery.com").orElse(null);
         if (staff != null) {
             java.time.LocalDate today = java.time.LocalDate.now();
+            java.time.LocalDate dayMinus3 = today.minusDays(3);
             
             // Hàm helper để tạo lịch làm việc
             java.util.function.BiConsumer<java.time.LocalDate, String> createShift = (date, type) -> {
-                if (shiftScheduleRepository.findByUserIdAndWorkDate(staff.getId(), date).isEmpty()) {
-                    shiftScheduleRepository.save(ShiftSchedule.builder()
+                if (shiftScheduleRepository.findByUser_IdAndWorkDate(staff.getId(), date).isEmpty()) {
+                    ShiftSchedule.ShiftScheduleBuilder builder = ShiftSchedule.builder()
                             .user(staff)
                             .workDate(date)
-                            .shiftType(type)
-                            .build());
+                            .shiftType(type);
+                    if ("G".equals(type)) {
+                        if (date.equals(today)) {
+                            builder.selectedBlocks("1,4");
+                        } else if (date.equals(today.plusDays(3))) {
+                            builder.selectedBlocks("1,3");
+                        } else if (date.equals(dayMinus3)) {
+                            builder.selectedBlocks("2,4");
+                        } else {
+                            builder.selectedBlocks("1,4");
+                        }
+                    }
+                    shiftScheduleRepository.save(builder.build());
                 }
             };
 
             // Hàm helper để tạo record chấm công giả lập
             java.util.function.Consumer<AttendanceRecord> createRecord = (record) -> {
-                if (attendanceRecordRepository.findByUserIdAndWorkDateAndBlockNumber(
+                if (attendanceRecordRepository.findByUser_IdAndWorkDateAndBlockNumber(
                         record.getUser().getId(), record.getWorkDate(), record.getBlockNumber()).isEmpty()) {
                     attendanceRecordRepository.save(record);
                 }
@@ -336,7 +348,6 @@ public class SeedService {
             // 7.3 Lịch quá khứ đa dạng
             java.time.LocalDate dayMinus1 = today.minusDays(1);
             java.time.LocalDate dayMinus2 = today.minusDays(2);
-            java.time.LocalDate dayMinus3 = today.minusDays(3);
             java.time.LocalDate dayMinus4 = today.minusDays(4);
             java.time.LocalDate dayMinus5 = today.minusDays(5);
 

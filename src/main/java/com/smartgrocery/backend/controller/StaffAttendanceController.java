@@ -4,6 +4,8 @@ import com.smartgrocery.backend.dto.*;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.security.SecurityUtils;
 import com.smartgrocery.backend.service.AttendanceService;
+import com.smartgrocery.backend.service.AttendanceStatisticsService;
+import com.smartgrocery.backend.service.ShiftRequestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,8 @@ import java.util.List;
 public class StaffAttendanceController {
 
     private final AttendanceService attendanceService;
+    private final ShiftRequestService shiftRequestService;
+    private final AttendanceStatisticsService attendanceStatisticsService;
 
     private void assertStaffRole() {
         if (!SecurityUtils.hasAnyRole("STAFF", "ADMIN")) {
@@ -31,45 +35,76 @@ public class StaffAttendanceController {
 
     @Operation(summary = "Lấy cấu hình giờ làm của các ca (S, C, G)")
     @GetMapping("/shift-config")
-    public ResponseEntity<List<ShiftConfigDto>> getShiftConfig() {
-        return ResponseEntity.ok(attendanceService.getShiftConfig());
+    public ResponseEntity<ApiResponse<List<ShiftConfigDto>>> getShiftConfig() {
+        return ResponseEntity.ok(ApiResponse.success(attendanceService.getShiftConfig()));
     }
 
     @Operation(summary = "Vào ca")
     @PostMapping("/check-in")
-    public ResponseEntity<AttendanceRecordDto> checkIn(
+    public ResponseEntity<ApiResponse<AttendanceRecordDto>> checkIn(
             @AuthenticationPrincipal User user,
             @RequestBody AttendanceCheckRequest request
     ) {
         assertStaffRole();
-        return ResponseEntity.ok(attendanceService.checkIn(user, request));
+        return ResponseEntity.ok(ApiResponse.success(attendanceService.checkIn(user, request)));
     }
 
     @Operation(summary = "Ra ca")
     @PostMapping("/check-out")
-    public ResponseEntity<AttendanceRecordDto> checkOut(
+    public ResponseEntity<ApiResponse<AttendanceRecordDto>> checkOut(
             @AuthenticationPrincipal User user,
             @RequestBody AttendanceCheckRequest request
     ) {
         assertStaffRole();
-        return ResponseEntity.ok(attendanceService.checkOut(user, request));
+        return ResponseEntity.ok(ApiResponse.success(attendanceService.checkOut(user, request)));
     }
 
     @Operation(summary = "Trạng thái hôm nay")
     @GetMapping("/today")
-    public ResponseEntity<StaffAttendanceTodayDto> getTodayStatus(@AuthenticationPrincipal User user) {
+    public ResponseEntity<ApiResponse<StaffAttendanceTodayDto>> getTodayStatus(@AuthenticationPrincipal User user) {
         assertStaffRole();
-        return ResponseEntity.ok(attendanceService.getTodayStatus(user));
+        return ResponseEntity.ok(ApiResponse.success(attendanceService.getTodayStatus(user)));
     }
 
     @Operation(summary = "Lịch sử chấm công theo tháng")
     @GetMapping("/calendar")
-    public ResponseEntity<List<AttendanceDayDto>> getMonthlyCalendar(
+    public ResponseEntity<ApiResponse<List<AttendanceDayDto>>> getMonthlyCalendar(
             @AuthenticationPrincipal User user,
             @RequestParam int year,
             @RequestParam int month
     ) {
         assertStaffRole();
-        return ResponseEntity.ok(attendanceService.getMonthlyCalendar(user, year, month));
+        return ResponseEntity.ok(ApiResponse.success(attendanceService.getMonthlyCalendar(user, year, month)));
+    }
+
+    @Operation(summary = "Thống kê chấm công theo tháng")
+    @GetMapping("/monthly-stats")
+    public ResponseEntity<ApiResponse<AttendanceMonthlyStatsDto>> getMonthlyStats(
+            @AuthenticationPrincipal User user,
+            @RequestParam int year,
+            @RequestParam int month
+    ) {
+        assertStaffRole();
+        return ResponseEntity.ok(ApiResponse.success(attendanceStatisticsService.getMonthlyStats(user, year, month)));
+    }
+
+    @Operation(summary = "Đăng ký ca làm (tương lai)")
+    @PostMapping("/requests")
+    public ResponseEntity<ApiResponse<ShiftRequestDto>> createShiftRequest(
+            @AuthenticationPrincipal User user,
+            @RequestBody ShiftRequestCreateRequest request
+    ) {
+        assertStaffRole();
+        return ResponseEntity.ok(ApiResponse.success(shiftRequestService.createOrUpdateRequest(user, request)));
+    }
+
+    @Operation(summary = "Hủy đăng ký ca (chỉ khi PENDING)")
+    @DeleteMapping("/requests/{id}")
+    public ResponseEntity<ApiResponse<ShiftRequestDto>> cancelShiftRequest(
+            @AuthenticationPrincipal User user,
+            @PathVariable("id") Long id
+    ) {
+        assertStaffRole();
+        return ResponseEntity.ok(ApiResponse.success(shiftRequestService.cancelRequest(user, id)));
     }
 }

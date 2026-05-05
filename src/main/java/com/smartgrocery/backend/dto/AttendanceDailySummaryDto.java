@@ -6,20 +6,19 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
-import java.util.List;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class AttendanceDayDto {
+public class AttendanceDailySummaryDto {
     private LocalDate date;
     private String shiftType;
     private String dayStatus;
-    private List<AttendanceRecordDto> records;
-    private Long requestId;
-    private String requestShiftType;
-    private String requestStatus;
-    private String requestAdminNote;
-    private String selectedBlocks;
+    private int scheduledBlocks;
+    private int completedBlocks;
+    private boolean hasLateCheckIn;
+    private boolean hasEarlyCheckOut;
+    private long workedMinutes;
+    private long scheduledMinutes;
 }

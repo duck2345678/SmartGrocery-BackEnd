@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS shift_schedules (
     user_id BIGINT NOT NULL REFERENCES users(user_id),
     work_date DATE NOT NULL,
     shift_type VARCHAR(10) NOT NULL, -- 'S','C','G','P','F','OFF'
+    selected_blocks VARCHAR(20),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(user_id, work_date)
