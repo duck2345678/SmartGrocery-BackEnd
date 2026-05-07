@@ -57,16 +57,12 @@ public class CartService {
         if (existingItem.isPresent()) {
             CartItem item = existingItem.get();
             item.setQuantity(item.getQuantity() + request.getQuantity());
-            if (request.getAllowSubstitution() != null) {
-                item.setAllowSubstitution(Boolean.TRUE.equals(request.getAllowSubstitution()));
-            }
             cartItemRepository.save(item);
         } else {
             CartItem newItem = CartItem.builder()
                     .cart(cart)
                     .variant(variant)
                     .quantity(request.getQuantity())
-                    .allowSubstitution(Boolean.TRUE.equals(request.getAllowSubstitution()))
                     .build();
             cartItemRepository.save(newItem);
         }
@@ -82,8 +78,8 @@ public class CartService {
         return getCart(user.getId());
     }
 
-    public CartDto updateCartItem(User user, Long cartItemId, Integer quantity, Boolean allowSubstitution) {
-        if (quantity == null && allowSubstitution == null) {
+    public CartDto updateCartItem(User user, Long cartItemId, Integer quantity) {
+        if (quantity == null) {
             throw new IllegalArgumentException("Thiếu dữ liệu cập nhật");
         }
         if (quantity != null && quantity < 0) throw new IllegalArgumentException("quantity không hợp lệ");
@@ -100,16 +96,13 @@ public class CartService {
             item.setQuantity(quantity);
         }
 
-        if (allowSubstitution != null) {
-            item.setAllowSubstitution(Boolean.TRUE.equals(allowSubstitution));
-        }
 
         cartItemRepository.save(item);
         return getCart(user.getId());
     }
 
     public CartDto updateCartItemQuantity(User user, Long cartItemId, Integer quantity) {
-        return updateCartItem(user, cartItemId, quantity, null);
+        return updateCartItem(user, cartItemId, quantity);
     }
 
     private Cart getOrCreateCart(Long userId) {
@@ -150,7 +143,6 @@ public class CartService {
                 .sku(item.getVariant().getSku())
                 .unitPrice(item.getVariant().getNetPrice())
                 .quantity(item.getQuantity())
-                .allowSubstitution(item.getAllowSubstitution())
                 .subtotal(subtotal)
                 .imageUrl(item.getVariant().getProduct().getImage())
                 .stock(stock)

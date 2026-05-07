@@ -12,6 +12,8 @@ import java.util.Optional;
 public interface AttendanceRecordRepository extends JpaRepository<AttendanceRecord, Long> {
     List<AttendanceRecord> findByUser_IdAndWorkDate(Long userId, LocalDate workDate);
     Optional<AttendanceRecord> findByUser_IdAndWorkDateAndBlockNumber(Long userId, LocalDate workDate, int blockNumber);
+    Optional<AttendanceRecord> findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(Long userId, LocalDate workDate);
     List<AttendanceRecord> findByUser_IdAndWorkDateBetween(Long userId, LocalDate start, LocalDate end);
     List<AttendanceRecord> findByWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(LocalDate workDate);
+    List<AttendanceRecord> findByCheckOutAtIsNull();
 }

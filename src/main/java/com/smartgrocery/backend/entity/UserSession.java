@@ -26,7 +26,8 @@ import java.time.LocalDateTime;
                 @Index(name = "idx_user_sessions_user_id", columnList = "user_id"),
                 @Index(name = "idx_user_sessions_refresh_token_hash", columnList = "refresh_token_hash"),
                 @Index(name = "idx_user_sessions_expires_at", columnList = "expires_at"),
-                @Index(name = "idx_user_sessions_revoked", columnList = "revoked")
+                @Index(name = "idx_user_sessions_revoked", columnList = "revoked"),
+                @Index(name = "idx_user_sessions_device_fingerprint", columnList = "device_fingerprint")
         }
 )
 @Data
@@ -59,6 +60,9 @@ public class UserSession {
 
     @Column(name = "ip_address", length = 64)
     private String ipAddress;
+
+    @Column(name = "device_fingerprint", length = 128)
+    private String deviceFingerprint;
 
     @Column(name = "last_used_at")
     private LocalDateTime lastUsedAt;

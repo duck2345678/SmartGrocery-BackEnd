@@ -52,6 +52,6 @@ public class CartController {
             @PathVariable Long cartItemId,
             @RequestBody UpdateCartItemRequest request
     ) {
-        return ResponseEntity.ok(cartService.updateCartItem(user, cartItemId, request.getQuantity(), request.getAllowSubstitution()));
+        return ResponseEntity.ok(cartService.updateCartItem(user, cartItemId, request.getQuantity()));
     }
 }

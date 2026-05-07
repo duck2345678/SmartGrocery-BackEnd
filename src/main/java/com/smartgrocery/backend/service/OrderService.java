@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -87,10 +88,17 @@ public class OrderService {
                     .map(ci -> OrderItemRequest.builder()
                             .variantId(ci.getVariant().getId())
                             .quantity(ci.getQuantity())
-                            .allowSubstitution(ci.getAllowSubstitution())
                             .build())
                     .collect(Collectors.toList());
             request.setItems(fromCart);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalTime currentTime = now.toLocalTime();
+        LocalTime blockStart = LocalTime.of(22, 0);
+        LocalTime blockEnd = LocalTime.of(6, 0);
+        if (!currentTime.isBefore(blockStart) || currentTime.isBefore(blockEnd)) {
+            throw new RuntimeException("Hệ thống tạm ngừng nhận đơn từ 22:00 đến 06:00 sáng hôm sau.");
         }
 
         // 1. Create Base Order
@@ -142,7 +150,6 @@ public class OrderService {
                     .unitPrice(unitPrice)
                     .subtotal(itemTotal)
                     .totalPrice(itemTotal)
-                    .allowSubstitution(Boolean.TRUE.equals(itemReq.getAllowSubstitution()))
                     .build();
 
 
@@ -191,7 +198,7 @@ public class OrderService {
                 .build();
         paymentRepository.save(payment);
 
-        // 8. Auto-dispatch: assign to the least-loaded staff first
+        // 8. Auto-dispatch: place the order into the staff queue first
         boolean assigned = autoOrderDispatchService != null && autoOrderDispatchService.tryAutoAssign(savedOrder.getId());
 
         // 9. Fallback notify all staff if no assignee is available
@@ -247,6 +254,11 @@ public class OrderService {
                 .customerNote(order.getCustomerNote())
                 .assigneeId(order.getAssignee() != null ? order.getAssignee().getId() : null)
                 .leaseExpiresAt(order.getLeaseExpiresAt())
+                .packingPhotoUrl(order.getPackingPhotoUrl())
+                .deliveryPhotoUrl(order.getDeliveryPhotoUrl())
+                .assignedAt(order.getAssignedAt())
+                .pickedAt(order.getPickedAt())
+                .deliveredAt(order.getDeliveredAt())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .items(order.getOrderItems() != null ? order.getOrderItems().stream().map(item -> OrderItemDto.builder()
@@ -260,7 +272,6 @@ public class OrderService {
                         .subtotal(item.getSubtotal())
                         .discountAmount(item.getDiscountAmount())
                         .totalPrice(item.getTotalPrice())
-                        .allowSubstitution(item.getAllowSubstitution())
                         .pickedQuantity(item.getPickedQuantity())
                         .isSubstituted(item.getIsSubstituted())
                         .substitutedVariantId(item.getSubstitutedVariant() != null ? item.getSubstitutedVariant().getId() : null)

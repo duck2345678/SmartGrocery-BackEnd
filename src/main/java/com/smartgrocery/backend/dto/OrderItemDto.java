@@ -22,7 +22,6 @@ public class OrderItemDto {
     private BigDecimal subtotal;
     private BigDecimal discountAmount;
     private BigDecimal totalPrice;
-    private Boolean allowSubstitution;
     private Integer pickedQuantity;
     private Boolean isSubstituted;
     private Long substitutedVariantId;

@@ -10,6 +10,8 @@ import com.smartgrocery.backend.repository.ShiftRequestRepository;
 import com.smartgrocery.backend.repository.ShiftScheduleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +20,9 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AttendanceService {
@@ -26,6 +30,7 @@ public class AttendanceService {
     private final AttendanceRecordRepository attendanceRecordRepository;
     private final ShiftScheduleRepository shiftScheduleRepository;
     private final ShiftRequestRepository shiftRequestRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     @Value("${app.attendance.early-buffer-minutes:15}")
     private int earlyBufferMinutes;
@@ -60,11 +65,12 @@ public class AttendanceService {
         ShiftSchedule schedule = shiftScheduleRepository.findByUser_IdAndWorkDate(user.getId(), today)
                 .orElseThrow(() -> new IllegalArgumentException("Không có lịch làm việc hôm nay."));
 
-        if ("OFF".equals(schedule.getShiftType()) || "P".equals(schedule.getShiftType()) || "F".equals(schedule.getShiftType())) {
+        String normalizedScheduleType = normalizeScheduleShiftType(schedule.getShiftType());
+        if ("OFF".equals(normalizedScheduleType) || "P".equals(normalizedScheduleType)) {
              throw new IllegalArgumentException("Ca làm việc hôm nay không yêu cầu chấm công.");
         }
 
-        List<ShiftConfigDto.ShiftBlock> blocks = SHIFT_CONFIG.get(schedule.getShiftType());
+        List<ShiftConfigDto.ShiftBlock> blocks = SHIFT_CONFIG.get(normalizedScheduleType);
         if (blocks == null || blocks.isEmpty()) {
             throw new IllegalStateException("Cấu hình ca làm lỗi.");
         }
@@ -72,7 +78,7 @@ public class AttendanceService {
         int targetBlock = 1;
         ShiftConfigDto.ShiftBlock currentBlockConfig = blocks.get(0);
 
-        if ("G".equals(schedule.getShiftType())) {
+        if ("G".equals(normalizedScheduleType)) {
             List<Integer> selectedBlocks = parseSelectedBlocks(schedule.getSelectedBlocks());
             if (selectedBlocks.isEmpty()) {
                 throw new IllegalStateException("Ca G chưa được cấu hình block.");
@@ -114,7 +120,7 @@ public class AttendanceService {
             }
 
             currentBlockConfig = matchedBlock;
-            targetBlock = matchedBlockNumber;
+            targetBlock = matchedBlockNumber != null ? matchedBlockNumber : targetBlock;
         }
 
         Optional<AttendanceRecord> existingOpt = attendanceRecordRepository.findByUser_IdAndWorkDateAndBlockNumber(user.getId(), today, targetBlock);
@@ -126,7 +132,7 @@ public class AttendanceService {
                 AttendanceRecord.builder()
                         .user(user)
                         .workDate(today)
-                        .shiftType(schedule.getShiftType())
+                        .shiftType(normalizedScheduleType)
                         .blockNumber(targetBlock)
                         .build()
         );
@@ -147,7 +153,9 @@ public class AttendanceService {
             record.setCheckInStatus("ON_TIME");
         }
 
-        return mapToDto(attendanceRecordRepository.save(record));
+        AttendanceRecord saved = attendanceRecordRepository.save(record);
+        applicationEventPublisher.publishEvent(new StaffCheckedInEvent(user.getId()));
+        return mapToDto(saved);
     }
 
     @Transactional
@@ -219,7 +227,8 @@ public class AttendanceService {
             List<AttendanceRecord> dayRecords = recordMap.getOrDefault(date, Collections.emptyList());
 
             boolean hasSchedule = schedule != null;
-            String shiftType = hasSchedule ? normalizeScheduleShiftType(schedule.getShiftType()) : "OFF";
+            String shiftType = schedule != null ? normalizeScheduleShiftType(schedule.getShiftType()) : "OFF";
+            String selectedBlocks = schedule != null ? (schedule.getSelectedBlocks() != null ? schedule.getSelectedBlocks() : "") : "";
             String dayStatus = determineDayStatus(date, hasSchedule, shiftType, dayRecords, today);
             ShiftRequest req = requestMap.get(date);
 
@@ -232,7 +241,7 @@ public class AttendanceService {
                     .requestShiftType(req != null ? req.getShiftType() : null)
                     .requestStatus(req != null ? req.getStatus() : null)
                     .requestAdminNote(req != null ? req.getAdminNote() : null)
-                    .selectedBlocks(req != null ? req.getSelectedBlocks() : null)
+                    .selectedBlocks(selectedBlocks)
                     .build());
         }
 
@@ -241,7 +250,7 @@ public class AttendanceService {
 
     private String determineDayStatus(LocalDate date, boolean hasSchedule, String shiftType, List<AttendanceRecord> records, LocalDate today) {
         if (!hasSchedule) return "NO_SCHEDULE";
-        if ("OFF".equals(shiftType) || "P".equals(shiftType) || "F".equals(shiftType)) return "OFF";
+        if ("OFF".equals(shiftType) || "P".equals(shiftType)) return "OFF";
 
         boolean isFuture = date.isAfter(today);
         if (isFuture) return "SCHEDULED";
@@ -256,7 +265,7 @@ public class AttendanceService {
         boolean hasMissing = records.size() < expectedBlocks;
         boolean hasIncomplete = records.stream().anyMatch(r -> r.getCheckOutAt() == null);
         boolean hasLateOrEarly = records.stream().anyMatch(r -> 
-            "LATE".equals(r.getCheckInStatus()) || "EARLY".equals(r.getCheckOutStatus())
+            "LATE".equals(r.getCheckInStatus()) || "EARLY".equals(r.getCheckOutStatus()) || "LATE".equals(r.getCheckOutStatus())
         );
 
         if (date.isBefore(today)) {
@@ -286,8 +295,8 @@ public class AttendanceService {
 
     private String normalizeScheduleShiftType(String shiftType) {
         String s = String.valueOf(shiftType == null ? "" : shiftType).trim().toUpperCase();
-        if (s.isEmpty()) return "OFF";
-        return s;
+        if (s.equals("S") || s.equals("C") || s.equals("G") || s.equals("P") || s.equals("OFF")) return s;
+        return "OFF";
     }
 
     private List<Integer> parseSelectedBlocks(String value) {
@@ -305,5 +314,35 @@ public class AttendanceService {
                 .filter(b -> Objects.equals(b.getBlockNumber(), blockNumber))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Tự động đóng tất cả ca làm việc còn mở vào cuối ngày.
+     * Chạy 1 lần duy nhất lúc 23:59 mỗi ngày.
+     * - Giờ đóng ca = giờ hệ thống thực tế (thời điểm chạy cron).
+     * - Trạng thái = LATE (ghi nhận về trễ / quên bấm ra ca).
+     */
+    @Scheduled(cron = "0 59 23 * * *")
+    @Transactional
+    public void autoCloseExpiredShifts() {
+        LocalDateTime now = LocalDateTime.now();
+
+        List<AttendanceRecord> openRecords = attendanceRecordRepository.findByCheckOutAtIsNull();
+        int closedCount = 0;
+
+        for (AttendanceRecord record : openRecords) {
+            record.setCheckOutAt(now);
+            record.setCheckOutStatus("LATE");
+
+            String autoNote = "[Hệ thống tự động đóng ca lúc " + now.toLocalTime().withNano(0) + " — nhân viên quên bấm ra ca]";
+            record.setNote(record.getNote() == null ? autoNote : record.getNote() + "\n" + autoNote);
+
+            attendanceRecordRepository.save(record);
+            closedCount++;
+        }
+
+        if (closedCount > 0) {
+            log.info("Attendance: Cuối ngày — tự động đóng {} ca làm việc, ghi nhận về trễ.", closedCount);
+        }
     }
 }

@@ -4,12 +4,10 @@ import com.smartgrocery.backend.dto.AssignOrderResponse;
 import com.smartgrocery.backend.dto.CompletePickingRequest;
 import com.smartgrocery.backend.dto.StaffPerformanceDailyDto;
 import com.smartgrocery.backend.dto.StaffPerformanceSummaryDto;
-import com.smartgrocery.backend.entity.InventoryStock;
 import com.smartgrocery.backend.entity.Order;
 import com.smartgrocery.backend.entity.OrderItem;
 import com.smartgrocery.backend.entity.ProductVariant;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.entity.Warehouse;
 import com.smartgrocery.backend.exception.OrderAssignmentConflictException;
 import com.smartgrocery.backend.repository.InventoryStockRepository;
 import com.smartgrocery.backend.repository.OrderItemRepository;
@@ -127,12 +125,12 @@ public class StaffOrderFlowServiceTest {
     }
 
     @Test
-    void getQueueUsesPendingAndNow() {
+    void getQueueUsesPersonalQueueAndNow() {
         StaffOrderFlowService service = newService();
-        when(orderRepository.findQueueForAssignment(eq("PENDING"), any(LocalDateTime.class)))
-                .thenReturn(List.of());
-        assertNotNull(service.getQueue());
-        verify(orderRepository, times(1)).findQueueForAssignment(eq("PENDING"), any(LocalDateTime.class));
+        User staff = User.builder().id(5L).build();
+        when(orderRepository.findPersonalQueueForAssignment(eq(5L), eq("QUEUED"))).thenReturn(List.of());
+        assertNotNull(service.getQueue(staff));
+        verify(orderRepository, times(1)).findPersonalQueueForAssignment(eq(5L), eq("QUEUED"));
     }
 
     @Test
@@ -146,7 +144,6 @@ public class StaffOrderFlowServiceTest {
                 .variant(original)
                 .quantity(1)
                 .unitPrice(java.math.BigDecimal.valueOf(30000))
-                .allowSubstitution(true)
                 .build();
         Order order = Order.builder()
                 .id(99L)
@@ -158,12 +155,8 @@ public class StaffOrderFlowServiceTest {
                 .build();
         oi.setOrder(order);
 
-        ProductVariant expensiveSub = ProductVariant.builder().id(202L).netPrice(java.math.BigDecimal.valueOf(35000)).build();
-
         when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
         when(orderItemRepository.findByOrder_Id(99L)).thenReturn(List.of(oi));
-        when(productVariantRepository.findById(202L)).thenReturn(Optional.of(expensiveSub));
-        when(warehouseRepository.findAll()).thenReturn(List.of(Warehouse.builder().id(1L).build()));
 
         CompletePickingRequest req = CompletePickingRequest.builder()
                 .pickedItems(List.of(CompletePickingRequest.PickedItem.builder()
@@ -176,7 +169,7 @@ public class StaffOrderFlowServiceTest {
                 .build();
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.completePicking(99L, staff, req));
-        assertTrue(ex.getMessage().toLowerCase().contains("giá thay thế"));
+        assertTrue(ex.getMessage().toLowerCase().contains("đã bị vô hiệu hóa"));
     }
 
     @Test
@@ -186,12 +179,12 @@ public class StaffOrderFlowServiceTest {
         LocalDate date = LocalDate.of(2026, 4, 18);
 
         List<Order> orders = List.of(
-                Order.builder().id(1L).orderNumber("SG-001").status("PICKED").updatedAt(LocalDateTime.of(2026, 4, 18, 9, 0)).build(),
-                Order.builder().id(2L).orderNumber("SG-002").status("PICKED").updatedAt(LocalDateTime.of(2026, 4, 18, 12, 30)).build()
+                Order.builder().id(1L).orderNumber("SG-001").status("PICKED").pickedAt(LocalDateTime.of(2026, 4, 18, 9, 0)).build(),
+                Order.builder().id(2L).orderNumber("SG-002").status("PICKED").pickedAt(LocalDateTime.of(2026, 4, 18, 12, 30)).build()
         );
 
-        when(orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(anyLong(), anyString(), any(), any())).thenReturn(2L);
-        when(orderRepository.findCompletedOrdersByStaffAndUpdatedAtRange(anyLong(), anyString(), any(), any())).thenReturn(orders);
+        when(orderRepository.countCompletedOrdersByStaffAndPickedAtRange(anyLong(), anyList(), any(), any())).thenReturn(2L);
+        when(orderRepository.findCompletedOrdersByStaffAndPickedAtRange(anyLong(), anyList(), any(), any())).thenReturn(orders);
 
         StaffPerformanceDailyDto dto = service.getPerformanceDaily(staff, date);
         assertEquals(date, dto.getDate());
@@ -200,7 +193,7 @@ public class StaffOrderFlowServiceTest {
 
         ArgumentCaptor<LocalDateTime> fromCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
         ArgumentCaptor<LocalDateTime> toCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(orderRepository).countCompletedOrdersByStaffAndUpdatedAtRange(eq(5L), eq("PICKED"), fromCaptor.capture(), toCaptor.capture());
+        verify(orderRepository).countCompletedOrdersByStaffAndPickedAtRange(eq(5L), eq(List.of("PICKED")), fromCaptor.capture(), toCaptor.capture());
         assertEquals(LocalDateTime.of(2026, 4, 18, 0, 0), fromCaptor.getValue());
         assertEquals(LocalDateTime.of(2026, 4, 19, 0, 0), toCaptor.getValue());
     }
@@ -211,7 +204,7 @@ public class StaffOrderFlowServiceTest {
         User staff = User.builder().id(5L).build();
         LocalDate date = LocalDate.of(2026, 4, 19);
 
-        when(orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(anyLong(), anyString(), any(), any()))
+        when(orderRepository.countCompletedOrdersByStaffAndPickedAtRange(anyLong(), anyList(), any(), any()))
                 .thenReturn(3L, 10L);
 
         StaffPerformanceSummaryDto dto = service.getPerformanceSummary(staff, date);

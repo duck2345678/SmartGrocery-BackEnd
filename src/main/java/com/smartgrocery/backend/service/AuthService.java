@@ -14,14 +14,12 @@ import com.smartgrocery.backend.repository.UserRepository;
 import com.smartgrocery.backend.repository.UserSessionRepository;
 import com.smartgrocery.backend.security.JwtService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -35,7 +33,7 @@ public class AuthService {
     private final UserSessionRepository userSessionRepository;
 
     @Transactional("transactionManager")
-    public AuthResponse register(RegisterRequest request) {
+    public AuthResponse register(RegisterRequest request, String deviceFingerprint) {
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new RuntimeException("Email already exists");
         }
@@ -56,7 +54,7 @@ public class AuthService {
 
         String jwt = jwtService.generateToken(user);
         String refreshToken = UUID.randomUUID().toString();
-        createSession(user, refreshToken, "Unknown", "Unknown");
+        createSession(user, refreshToken, "Unknown", "Unknown", deviceFingerprint);
 
         return AuthResponse.builder()
                 .token(jwt)
@@ -65,7 +63,7 @@ public class AuthService {
                 .build();
     }
 
-    public AuthResponse login(LoginRequest request) {
+    public AuthResponse login(LoginRequest request, String deviceFingerprint) {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -76,7 +74,7 @@ public class AuthService {
         String jwt = jwtService.generateToken(user);
         String refreshToken = UUID.randomUUID().toString();
         // In a real scenario, userAgent and ipAddress would be passed from the Controller
-        createSession(user, refreshToken, "Unknown", "Unknown");
+        createSession(user, refreshToken, "Unknown", "Unknown", deviceFingerprint);
 
         return AuthResponse.builder()
                 .token(jwt)
@@ -86,7 +84,7 @@ public class AuthService {
     }
 
     @Transactional("transactionManager")
-    public AuthResponse loginWithFirebase(String idToken) {
+    public AuthResponse loginWithFirebase(String idToken, String deviceFingerprint) {
         try {
             FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
             String email = decodedToken.getEmail();
@@ -121,7 +119,7 @@ public class AuthService {
             user = userRepository.save(user);
             String jwt = jwtService.generateToken(user);
             String refreshToken = UUID.randomUUID().toString();
-            createSession(user, refreshToken, "Unknown", "Unknown");
+            createSession(user, refreshToken, "Unknown", "Unknown", deviceFingerprint);
 
             return AuthResponse.builder()
                     .token(jwt)
@@ -134,7 +132,7 @@ public class AuthService {
     }
 
     @Transactional("transactionManager")
-    public AuthResponse refreshToken(String refreshToken, String userAgent, String ipAddress) {
+    public AuthResponse refreshToken(String refreshToken, String userAgent, String ipAddress, String deviceFingerprint) {
         String hash = jwtService.hashToken(refreshToken);
         UserSession session = userSessionRepository.findByRefreshTokenHash(hash)
                 .orElseThrow(() -> new RuntimeException("Invalid refresh token"));
@@ -148,6 +146,12 @@ public class AuthService {
             throw new RuntimeException("Refresh token expired");
         }
 
+        String normalizedFingerprint = normalizeFingerprint(deviceFingerprint);
+        if (session.getDeviceFingerprint() == null || !session.getDeviceFingerprint().equals(normalizedFingerprint)) {
+            userSessionRepository.revokeAllActiveSessionsByUserId(session.getUser().getId());
+            throw new RuntimeException("Thiết bị đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
+        }
+
         // Rotate: Revoke current session
         session.setRevoked(true);
         userSessionRepository.save(session);
@@ -157,7 +161,7 @@ public class AuthService {
         String newAccessToken = jwtService.generateToken(user);
         String newRefreshToken = UUID.randomUUID().toString();
 
-        createSession(user, newRefreshToken, userAgent, ipAddress);
+        createSession(user, newRefreshToken, userAgent, ipAddress, normalizedFingerprint);
 
         return AuthResponse.builder()
                 .token(newAccessToken)
@@ -167,36 +171,64 @@ public class AuthService {
     }
 
     @Transactional("transactionManager")
-    public void logout(String refreshToken) {
+    public void logout(String refreshToken, String deviceFingerprint) {
         String hash = jwtService.hashToken(refreshToken);
+        String normalizedFingerprint = normalizeFingerprint(deviceFingerprint);
         userSessionRepository.findByRefreshTokenHash(hash).ifPresent(session -> {
+            if (normalizedFingerprint != null && session.getDeviceFingerprint() != null && !session.getDeviceFingerprint().equals(normalizedFingerprint)) {
+                return;
+            }
             session.setRevoked(true);
             userSessionRepository.save(session);
         });
     }
 
-    private void createSession(User user, String refreshToken, String userAgent, String ipAddress) {
-        // Enforce 5 devices limit (LRU eviction)
-        long activeSessions = userSessionRepository.countByUser_IdAndRevokedFalseAndExpiresAtAfter(user.getId(), LocalDateTime.now());
-        if (activeSessions >= 5) {
-            List<UserSession> oldestSessions = userSessionRepository.findActiveSessionsLruAsc(user.getId(), LocalDateTime.now(), PageRequest.of(0, 1));
-            if (!oldestSessions.isEmpty()) {
-                UserSession oldest = oldestSessions.get(0);
-                oldest.setRevoked(true);
-                userSessionRepository.save(oldest);
-            }
+    @Transactional("transactionManager")
+    private void createSession(User user, String refreshToken, String userAgent, String ipAddress, String deviceFingerprint) {
+        String normalizedFingerprint = normalizeFingerprint(deviceFingerprint);
+        if (normalizedFingerprint == null || normalizedFingerprint.isBlank()) {
+            throw new RuntimeException("Thiết bị đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
         }
+
+        // Single-device policy: any new login takes over the account and invalidates prior sessions.
+        userSessionRepository.revokeAllActiveSessionsByUserId(user.getId());
 
         UserSession session = UserSession.builder()
                 .user(user)
                 .refreshTokenHash(jwtService.hashToken(refreshToken))
-                .expiresAt(LocalDateTime.now().plusDays(7)) // 7 days as discussed
+                .expiresAt(LocalDateTime.now().plusDays(7))
                 .userAgent(userAgent)
                 .ipAddress(ipAddress)
+                .deviceFingerprint(normalizedFingerprint)
                 .lastUsedAt(LocalDateTime.now())
                 .revoked(false)
                 .build();
         userSessionRepository.save(session);
+    }
+
+    private String normalizeFingerprint(String deviceFingerprint) {
+        return deviceFingerprint == null ? null : deviceFingerprint.trim();
+    }
+
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
+    public UserDto getCurrentUserDto(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        return mapToUserDto(user);
+    }
+
+    @Transactional("transactionManager")
+    public UserDto updateUserProfile(User user, Map<String, String> updates) {
+        if (updates.containsKey("fullName")) {
+            user.setFullName(updates.get("fullName"));
+        }
+        if (updates.containsKey("phone")) {
+            user.setPhone(updates.get("phone"));
+        }
+        if (updates.containsKey("avatarUrl")) {
+            user.setAvatarUrl(updates.get("avatarUrl"));
+        }
+        return mapToUserDto(userRepository.save(user));
     }
 
     private UserDto mapToUserDto(User user) {

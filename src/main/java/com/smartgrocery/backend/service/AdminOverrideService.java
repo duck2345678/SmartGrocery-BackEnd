@@ -70,7 +70,7 @@ public class AdminOverrideService {
 
         order.setStatus("ASSIGNED");
         order.setAssignee(staff);
-        order.setLeaseExpiresAt(LocalDateTime.now().plusMinutes(10));
+        order.setLeaseExpiresAt(LocalDateTime.now().plusMinutes(30));
         Order saved = orderRepository.save(order);
 
         auditService.log(admin, "EMERGENCY_ASSIGN", "ORDER", orderId, reason, before, snapshot(saved));

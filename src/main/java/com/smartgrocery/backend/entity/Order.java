@@ -56,7 +56,7 @@ public class Order {
 
     @Column(length = 30, nullable = false)
     @Builder.Default
-    private String status = "PENDING"; // PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED
+    private String status = "PENDING"; // PENDING, ASSIGNED, PICKING, READY_TO_SHIP, DELIVERING, DELIVERED, CANCELLED
 
     @Column(name = "payment_method", length = 50, nullable = false)
     private String paymentMethod;
@@ -77,6 +77,21 @@ public class Order {
 
     @Column(name = "lease_expires_at")
     private LocalDateTime leaseExpiresAt;
+
+    @Column(name = "packing_photo_url", length = 500)
+    private String packingPhotoUrl;
+
+    @Column(name = "delivery_photo_url", length = 500)
+    private String deliveryPhotoUrl;
+
+    @Column(name = "assigned_at")
+    private LocalDateTime assignedAt;
+
+    @Column(name = "picked_at")
+    private LocalDateTime pickedAt;
+
+    @Column(name = "delivered_at")
+    private LocalDateTime deliveredAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL)
     private List<OrderItem> orderItems;

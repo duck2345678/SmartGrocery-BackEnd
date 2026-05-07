@@ -22,7 +22,6 @@ public class CartItemDto {
     private String sku;
     private BigDecimal unitPrice;
     private Integer quantity;
-    private Boolean allowSubstitution;
     private BigDecimal subtotal;
     private String imageUrl;
     private Integer stock;

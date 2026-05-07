@@ -29,6 +29,8 @@ public class StaffAttendanceController {
 
     private void assertStaffRole() {
         if (!SecurityUtils.hasAnyRole("STAFF", "ADMIN")) {
+            Long userId = SecurityUtils.getCurrentUserId();
+            System.err.println("[AUTH] Access Denied for Staff Attendance. User ID: " + userId);
             throw new AccessDeniedException("Access denied");
         }
     }

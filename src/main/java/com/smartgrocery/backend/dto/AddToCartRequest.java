@@ -6,5 +6,4 @@ import lombok.Data;
 public class AddToCartRequest {
     private Long variantId;
     private Integer quantity;
-    private Boolean allowSubstitution;
 }

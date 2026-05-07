@@ -37,7 +37,25 @@ public class ProductService {
     private OrderItemRepository orderItemRepository;
 
     public Page<ProductDto> getAllProducts(Pageable pageable) {
-        Page<Product> page = productRepository.findAll(pageable);
+        return getProducts(null, null, pageable);
+    }
+
+    public Page<ProductDto> getProducts(String search, Long categoryId, Pageable pageable) {
+        Page<Product> page;
+        boolean hasSearch = search != null && !search.trim().isEmpty();
+        boolean hasCategory = categoryId != null;
+        String trimmedSearch = search != null ? search.trim() : "";
+
+        if (hasSearch && hasCategory) {
+            page = productRepository.findByNameContainingIgnoreCaseAndCategoryId(trimmedSearch, categoryId, pageable);
+        } else if (hasSearch) {
+            page = productRepository.findByNameContainingIgnoreCase(trimmedSearch, pageable);
+        } else if (hasCategory) {
+            page = productRepository.findByCategoryId(categoryId, pageable);
+        } else {
+            page = productRepository.findAll(pageable);
+        }
+
         List<Long> productIds = page.getContent().stream().map(Product::getId).toList();
         Map<Long, Long> purchaseCountByProductId = getPurchaseCountByProductIds(productIds);
         return page.map(product -> mapToDto(product, purchaseCountByProductId.getOrDefault(product.getId(), 0L)));

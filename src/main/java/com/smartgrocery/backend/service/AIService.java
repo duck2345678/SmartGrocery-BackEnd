@@ -131,9 +131,6 @@ public class AIService {
     }
 
     public Mono<String> optimizeBasket(Long userId, java.math.BigDecimal budget) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
         var profile = userNutritionProfileRepository.findByUser_Id(userId).orElse(null);
         List<ProductNode> allProducts = productNodeRepository.findAll();
 

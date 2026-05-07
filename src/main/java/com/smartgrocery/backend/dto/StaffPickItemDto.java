@@ -21,6 +21,6 @@ public class StaffPickItemDto {
     private String aisleLocation;
     private Integer orderedQuantity;
     private Integer pickedQuantity;
-    private Boolean allowSubstitution;
     private BigDecimal unitPrice;
+    private String imageUrl;
 }

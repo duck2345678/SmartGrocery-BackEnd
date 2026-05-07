@@ -18,6 +18,12 @@ public interface UserSessionRepository extends JpaRepository<UserSession, Long> 
 
     Optional<UserSession> findByRefreshTokenHash(String refreshTokenHash);
 
+    Optional<UserSession> findByUser_IdAndDeviceFingerprintAndRevokedFalseAndExpiresAtAfter(
+            Long userId,
+            String deviceFingerprint,
+            LocalDateTime now
+    );
+
     long countByUser_IdAndRevokedFalseAndExpiresAtAfter(Long userId, LocalDateTime now);
 
     @Query("""

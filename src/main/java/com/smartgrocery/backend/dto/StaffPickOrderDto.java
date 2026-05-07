@@ -18,6 +18,16 @@ public class StaffPickOrderDto {
     private String status;
     private Long assigneeId;
     private LocalDateTime leaseExpiresAt;
+    private String packingPhotoUrl;
+    private String deliveryPhotoUrl;
     private List<StaffPickItemDto> items;
+    private String customerName;
+    private String customerPhone;
+    private String customerEmail;
+    private String addressLine;
+    private String paymentMethod;
+    private java.math.BigDecimal subtotal;
+    private java.math.BigDecimal totalAmount;
+    private LocalDateTime orderDate;
+    private LocalDateTime deliveryDate;
 }
-

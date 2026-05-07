@@ -29,6 +29,11 @@ public class OrderDto {
     private String customerNote;
     private Long assigneeId;
     private LocalDateTime leaseExpiresAt;
+    private String packingPhotoUrl;
+    private String deliveryPhotoUrl;
+    private LocalDateTime assignedAt;
+    private LocalDateTime pickedAt;
+    private LocalDateTime deliveredAt;
     private List<OrderItemDto> items;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

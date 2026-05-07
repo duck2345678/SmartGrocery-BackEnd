@@ -35,7 +35,7 @@ public class ShiftSchedule {
     private LocalDate workDate;
 
     @Column(name = "shift_type", nullable = false, length = 10)
-    private String shiftType; // 'S', 'C', 'G', 'P', 'F', 'OFF'
+    private String shiftType; // 'S', 'C', 'G', 'P', 'OFF'
 
     @Column(name = "selected_blocks", length = 20)
     private String selectedBlocks;

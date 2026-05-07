@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -44,9 +43,6 @@ public class SeedService {
 
     @Autowired
     private UserAddressRepository userAddressRepository;
-
-    @Autowired
-    private VoucherRepository voucherRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -86,6 +82,7 @@ public class SeedService {
 
     @Transactional
     public void seedData() {
+
         // 1. Roles
         if (roleRepository.count() == 0) {
             roleRepository.saveAll(List.of(
@@ -124,8 +121,9 @@ public class SeedService {
             System.out.println(">> Seeded P0 Customer: customer.p0@smartgrocery.com / password123");
         }
 
-        if (staffRole != null && !userRepository.existsByEmail("staff.p0@smartgrocery.com")) {
-            User staff = User.builder()
+        User staff = userRepository.findByEmail("staff.p0@smartgrocery.com").orElse(null);
+        if (staff == null) {
+            staff = User.builder()
                     .email("staff.p0@smartgrocery.com")
                     .passwordHash(passwordEncoder.encode("password123"))
                     .fullName("P0 Staff")
@@ -135,6 +133,11 @@ public class SeedService {
                     .build();
             userRepository.save(staff);
             System.out.println(">> Seeded P0 Staff: staff.p0@smartgrocery.com / password123");
+        } else if (staffRole != null && !staffRole.equals(staff.getRole())) {
+            staff.setRole(staffRole);
+            staff.setStatus("ACTIVE");
+            userRepository.save(staff);
+            System.out.println(">> Updated P0 Staff role to STAFF");
         }
 
         if (adminRole != null && !userRepository.existsByEmail("admin.p0@smartgrocery.com")) {
@@ -187,16 +190,16 @@ public class SeedService {
 
         record SeedProduct(String code, String name, Category category, String sku, String barcode, String variantName, String unit, BigDecimal price, int stock) {}
         List<SeedProduct> catalog = List.of(
-                new SeedProduct("P_BROC", "Bông cải xanh", veg, "SKU_B001", "BAR_B001", "Bông cải xanh 500g", "PACK", BigDecimal.valueOf(30000), 40),
-                new SeedProduct("P_CARROT", "Cà rốt Đà Lạt", veg, "SKU_V002", "BAR_V002", "Cà rốt 1kg", "BAG", BigDecimal.valueOf(28000), 35),
-                new SeedProduct("P_TOMATO", "Cà chua bi", veg, "SKU_V003", "BAR_V003", "Cà chua bi 500g", "BOX", BigDecimal.valueOf(25000), 25),
-                new SeedProduct("P_APPLE", "Táo đỏ Mỹ", fruit, "SKU_F001", "BAR_F001", "Táo đỏ 1kg", "BAG", BigDecimal.valueOf(68000), 20),
-                new SeedProduct("P_BANANA", "Chuối già Nam Mỹ", fruit, "SKU_F002", "BAR_F002", "Chuối 1 nải", "BUNCH", BigDecimal.valueOf(22000), 30),
-                new SeedProduct("P_ORANGE", "Cam sành", fruit, "SKU_F003", "BAR_F003", "Cam 1kg", "BAG", BigDecimal.valueOf(42000), 18),
-                new SeedProduct("P_MILK", "Sữa tươi không đường", dairy, "SKU_D001", "BAR_D001", "Hộp 1L", "BOX", BigDecimal.valueOf(33000), 60),
-                new SeedProduct("P_EGGS", "Trứng gà", dairy, "SKU_D002", "BAR_D002", "Vỉ 10 trứng", "TRAY", BigDecimal.valueOf(32000), 50),
-                new SeedProduct("P_PORK", "Thịt heo ba rọi", meat, "SKU_M001", "BAR_M001", "500g", "PACK", BigDecimal.valueOf(75000), 15),
-                new SeedProduct("P_RICE", "Gạo ST25", staple, "SKU_S001", "BAR_S001", "Túi 5kg", "BAG", BigDecimal.valueOf(165000), 12)
+                new SeedProduct("P_BROC", "Bông cải xanh", veg, "SKU_B001", "BAR_B001", "Bông cải xanh 500g", "PACK", BigDecimal.valueOf(30000), 200),
+                new SeedProduct("P_CARROT", "Cà rốt Đà Lạt", veg, "SKU_V002", "BAR_V002", "Cà rốt 1kg", "BAG", BigDecimal.valueOf(28000), 200),
+                new SeedProduct("P_TOMATO", "Cà chua bi", veg, "SKU_V003", "BAR_V003", "Cà chua bi 500g", "BOX", BigDecimal.valueOf(25000), 200),
+                new SeedProduct("P_APPLE", "Táo đỏ Mỹ", fruit, "SKU_F001", "BAR_F001", "Táo đỏ 1kg", "BAG", BigDecimal.valueOf(68000), 200),
+                new SeedProduct("P_BANANA", "Chuối già Nam Mỹ", fruit, "SKU_F002", "BAR_F002", "Chuối 1 nải", "BUNCH", BigDecimal.valueOf(22000), 200),
+                new SeedProduct("P_ORANGE", "Cam sành", fruit, "SKU_F003", "BAR_F003", "Cam 1kg", "BAG", BigDecimal.valueOf(42000), 200),
+                new SeedProduct("P_MILK", "Sữa tươi không đường", dairy, "SKU_D001", "BAR_D001", "Hộp 1L", "BOX", BigDecimal.valueOf(33000), 200),
+                new SeedProduct("P_EGGS", "Trứng gà", dairy, "SKU_D002", "BAR_D002", "Vỉ 10 trứng", "TRAY", BigDecimal.valueOf(32000), 200),
+                new SeedProduct("P_PORK", "Thịt heo ba rọi", meat, "SKU_M001", "BAR_M001", "500g", "PACK", BigDecimal.valueOf(75000), 200),
+                new SeedProduct("P_RICE", "Gạo ST25", staple, "SKU_S001", "BAR_S001", "Túi 5kg", "BAG", BigDecimal.valueOf(165000), 200)
         );
 
         int createdCount = 0;
@@ -284,33 +287,41 @@ public class SeedService {
                         .build()));
 
         // 5.2 Fulfillment test orders (real DB data for Staff UI testing)
-        seedFulfillmentOrdersIfNeeded(longNameVariant.getId());
+        try {
+            seedFulfillmentOrdersIfNeeded(longNameVariant.getId());
+        } catch (Exception e) {
+            System.err.println(">> Warning: Failed to seed fulfillment orders: " + e.getMessage());
+        }
 
         // 6. Graph (Neo4j)
-        neo4jTransactionTemplate.executeWithoutResult(status -> {
-            if (productNodeRepository.count() == 0) {
-                productRepository.findAll().forEach(p -> {
-                    ProductNode node = ProductNode.builder()
-                            .productId(p.getId())
-                            .name(p.getName())
-                            .build();
-                    productNodeRepository.save(node);
-                });
-                System.out.println(">> Synchronized Neo4j!");
-            }
-        });
+        try {
+            neo4jTransactionTemplate.executeWithoutResult(status -> {
+                if (productNodeRepository.count() == 0) {
+                    productRepository.findAll().forEach(p -> {
+                        ProductNode node = ProductNode.builder()
+                                .productId(p.getId())
+                                .name(p.getName())
+                                .build();
+                        productNodeRepository.save(node);
+                    });
+                    System.out.println(">> Synchronized Neo4j!");
+                }
+            });
+        } catch (Exception e) {
+            System.err.println(">> Warning: Neo4j synchronization failed (database may not be running): " + e.getMessage());
+        }
 
         // 7. Seed Staff Shift Schedule and Attendance Records
-        User staff = userRepository.findByEmail("staff.p0@smartgrocery.com").orElse(null);
-        if (staff != null) {
+        final User finalStaff = staff;
+        if (finalStaff != null) {
             java.time.LocalDate today = java.time.LocalDate.now();
             java.time.LocalDate dayMinus3 = today.minusDays(3);
             
             // Hàm helper để tạo lịch làm việc
             java.util.function.BiConsumer<java.time.LocalDate, String> createShift = (date, type) -> {
-                if (shiftScheduleRepository.findByUser_IdAndWorkDate(staff.getId(), date).isEmpty()) {
+                if (shiftScheduleRepository.findByUser_IdAndWorkDate(finalStaff.getId(), date).isEmpty()) {
                     ShiftSchedule.ShiftScheduleBuilder builder = ShiftSchedule.builder()
-                            .user(staff)
+                            .user(finalStaff)
                             .workDate(date)
                             .shiftType(type);
                     if ("G".equals(type)) {
@@ -342,8 +353,19 @@ public class SeedService {
             createShift.accept(today.plusDays(3), "G");
             createShift.accept(today.plusDays(4), "OFF");
 
-            // 7.2 Lịch hôm nay (G) - Để test nút vào ca
-            createShift.accept(today, "G");
+            // 7.2 Lịch hôm nay (S) - Ca sáng theo yêu cầu người dùng
+            ShiftSchedule todayShift = shiftScheduleRepository.findByUser_IdAndWorkDate(finalStaff.getId(), today).orElse(null);
+            if (todayShift == null) {
+                shiftScheduleRepository.save(ShiftSchedule.builder()
+                        .user(finalStaff)
+                        .workDate(today)
+                        .shiftType("S")
+                        .build());
+            } else if (!"S".equals(todayShift.getShiftType())) {
+                todayShift.setShiftType("S");
+                todayShift.setSelectedBlocks(null); // Clear split blocks if any
+                shiftScheduleRepository.save(todayShift);
+            }
 
             // 7.3 Lịch quá khứ đa dạng
             java.time.LocalDate dayMinus1 = today.minusDays(1);
@@ -360,7 +382,7 @@ public class SeedService {
             // Tạo các bản ghi chấm công (AttendanceRecord) cho các ngày quá khứ
             // Day -1: Đúng giờ
             createRecord.accept(AttendanceRecord.builder()
-                    .user(staff).workDate(dayMinus1).shiftType("S").blockNumber(1)
+                    .user(finalStaff).workDate(dayMinus1).shiftType("S").blockNumber(1)
                     .checkInAt(dayMinus1.atTime(6, 25))
                     .checkOutAt(dayMinus1.atTime(14, 35))
                     .checkInStatus("ON_TIME").checkOutStatus("ON_TIME")
@@ -368,7 +390,7 @@ public class SeedService {
 
             // Day -2: LATE
             createRecord.accept(AttendanceRecord.builder()
-                    .user(staff).workDate(dayMinus2).shiftType("C").blockNumber(1)
+                    .user(finalStaff).workDate(dayMinus2).shiftType("C").blockNumber(1)
                     .checkInAt(dayMinus2.atTime(14, 50)) // Trễ so với 14:30
                     .checkOutAt(dayMinus2.atTime(22, 35))
                     .checkInStatus("LATE").checkOutStatus("ON_TIME")
@@ -376,7 +398,7 @@ public class SeedService {
 
             // Day -3: Ca Gãy, có block 1, ko có block 2 -> Incomplete -> Cam
             createRecord.accept(AttendanceRecord.builder()
-                    .user(staff).workDate(dayMinus3).shiftType("G").blockNumber(1)
+                    .user(finalStaff).workDate(dayMinus3).shiftType("G").blockNumber(1)
                     .checkInAt(dayMinus3.atTime(6, 20))
                     .checkOutAt(dayMinus3.atTime(10, 30))
                     .checkInStatus("ON_TIME").checkOutStatus("ON_TIME")
@@ -389,8 +411,10 @@ public class SeedService {
         }
     }
 
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     private void seedFulfillmentOrdersIfNeeded(Long longNameVariantId) {
-        if (orderRepository.count() >= 6) {
+        // Skip if we already have test orders
+        if (orderRepository.count() >= 2) {
             return;
         }
 
@@ -415,41 +439,16 @@ public class SeedService {
                 productVariantRepository.findBySku("SKU_S001").orElse(null)
         ).stream().filter(v -> v != null).toList();
 
-        if (baseVariants.size() < 6) return;
+        if (baseVariants.size() < 3) return;
 
-        createSeedOrder(customer, addressId, "COD", "SEED_UI_SMALL_1_ITEM", List.of(
-                OrderItemRequest.builder()
-                        .variantId(baseVariants.get(0).getId())
-                        .quantity(1)
-                        .allowSubstitution(false)
-                        .build()
+        // Create only one simple test order to avoid inventory conflicts
+        createSeedOrder(customer, addressId, "COD", "SEED_UI_TEST_ORDER_1", List.of(
+                OrderItemRequest.builder().variantId(baseVariants.get(0).getId()).quantity(1).build(),
+                OrderItemRequest.builder().variantId(baseVariants.get(1).getId()).quantity(1).build()
         ));
-
-        createSeedOrder(customer, addressId, "COD", "SEED_UI_MIXED_ALLOW_SUB", List.of(
-                OrderItemRequest.builder().variantId(baseVariants.get(1).getId()).quantity(2).allowSubstitution(true).build(),
-                OrderItemRequest.builder().variantId(baseVariants.get(2).getId()).quantity(1).allowSubstitution(false).build(),
-                OrderItemRequest.builder().variantId(baseVariants.get(3).getId()).quantity(1).allowSubstitution(true).build(),
-                OrderItemRequest.builder().variantId(baseVariants.get(4).getId()).quantity(3).allowSubstitution(false).build(),
-                OrderItemRequest.builder().variantId(baseVariants.get(5).getId()).quantity(1).allowSubstitution(true).build()
-        ));
-
-        createSeedOrder(customer, addressId, "COD", "SEED_UI_LONG_NAME_OVERFLOW", List.of(
-                OrderItemRequest.builder().variantId(longNameVariantId).quantity(1).allowSubstitution(false).build(),
-                OrderItemRequest.builder().variantId(baseVariants.get(6).getId()).quantity(1).allowSubstitution(false).build()
-        ));
-
-        List<OrderItemRequest> bigItems = new ArrayList<>();
-        for (int i = 0; i < 50; i++) {
-            ProductVariant v = baseVariants.get(i % baseVariants.size());
-            bigItems.add(OrderItemRequest.builder()
-                    .variantId(v.getId())
-                    .quantity(1)
-                    .allowSubstitution(i % 3 == 0)
-                    .build());
-        }
-        createSeedOrder(customer, addressId, "COD", "SEED_UI_BIG_50_LINES", bigItems);
     }
 
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     private void createSeedOrder(User customer, Long addressId, String paymentMethod, String note, List<OrderItemRequest> items) {
         try {
             CreateOrderRequest req = new CreateOrderRequest();
@@ -458,7 +457,8 @@ public class SeedService {
             req.setCustomerNote(note);
             req.setItems(items);
             orderService.createOrder(customer, req);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.err.println(">> Failed to create seed order [" + note + "]: " + e.getMessage());
         }
     }
 }

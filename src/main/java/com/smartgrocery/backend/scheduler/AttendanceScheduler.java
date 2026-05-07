@@ -3,7 +3,6 @@ package com.smartgrocery.backend.scheduler;
 import com.smartgrocery.backend.entity.AttendanceRecord;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.repository.AttendanceRecordRepository;
-import com.smartgrocery.backend.repository.UserRepository;
 import com.smartgrocery.backend.service.FcmService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +22,6 @@ import java.util.List;
 public class AttendanceScheduler {
 
     private final AttendanceRecordRepository attendanceRecordRepository;
-    private final UserRepository userRepository;
     private final FcmService fcmService;
 
     @Scheduled(cron = "0 */5 * * * *")

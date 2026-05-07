@@ -1,7 +1,5 @@
 package com.smartgrocery.backend.service;
 
-import com.smartgrocery.backend.entity.AttendanceRecord;
-import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.repository.AttendanceRecordRepository;
 import com.smartgrocery.backend.repository.UserRepository;
 import com.smartgrocery.backend.scheduler.AttendanceScheduler;

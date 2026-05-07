@@ -39,6 +39,14 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Modifying
     @Query("""
            update Order o
+           set o.assignedAt = :assignedAt
+           where o.id = :orderId
+           """)
+    int touchAssignedAt(@Param("orderId") Long orderId, @Param("assignedAt") LocalDateTime assignedAt);
+
+    @Modifying
+    @Query("""
+           update Order o
            set o.leaseExpiresAt = :leaseExpiresAt
            where o.id = :orderId
              and o.assignee.id = :staffId
@@ -81,11 +89,49 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     @Query("""
            select o from Order o
+           where o.status = :queuedStatus
+             and o.assignee.id = :staffId
+           order by o.createdAt asc
+           """)
+    List<Order> findPersonalQueueForAssignment(
+            @Param("staffId") Long staffId,
+            @Param("queuedStatus") String queuedStatus
+    );
+
+    @Modifying
+    @Query("""
+           update Order o
+           set o.status = :assignedStatus,
+               o.leaseExpiresAt = :leaseExpiresAt,
+               o.updatedAt = :now
+           where o.id = :orderId
+             and o.assignee.id = :staffId
+             and o.status = :queuedStatus
+           """)
+    int acceptQueuedOrder(
+            @Param("orderId") Long orderId,
+            @Param("staffId") Long staffId,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt,
+            @Param("assignedStatus") String assignedStatus,
+            @Param("queuedStatus") String queuedStatus,
+            @Param("now") LocalDateTime now
+    );
+
+    @Query("""
+           select o from Order o
            where o.status = :assignedStatus
              and o.assignee is not null
            order by o.updatedAt asc
            """)
     List<Order> findAssignedOrders(@Param("assignedStatus") String assignedStatus);
+
+    @Query("""
+           select o from Order o
+           where o.status in :activeStatuses
+             and o.assignee is not null
+           order by o.updatedAt asc
+           """)
+    List<Order> findActiveAssignments(@Param("activeStatuses") List<String> activeStatuses);
 
     @Modifying
     @Query("""
@@ -126,8 +172,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
            select o from Order o
            where o.assignee.id = :staffId
              and o.status in :activeStatuses
-             and o.leaseExpiresAt is not null
-             and o.leaseExpiresAt >= :now
+             and (
+                o.status in ('PICKED', 'READY_TO_SHIP', 'DELIVERING')
+                or (o.leaseExpiresAt is not null and o.leaseExpiresAt >= :now)
+             )
            order by o.updatedAt desc
            """)
     List<Order> findActiveLeaseOrdersByStaff(
@@ -139,14 +187,15 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("""
            select o from Order o
            where o.assignee.id = :staffId
-             and o.status = :completedStatus
-             and o.updatedAt >= :from
-             and o.updatedAt < :to
-           order by o.updatedAt desc
+             and o.status in :completedStatuses
+             and o.pickedAt is not null
+             and o.pickedAt >= :from
+             and o.pickedAt < :to
+           order by o.pickedAt desc
            """)
-    List<Order> findCompletedOrdersByStaffAndUpdatedAtRange(
+    List<Order> findCompletedOrdersByStaffAndPickedAtRange(
             @Param("staffId") Long staffId,
-            @Param("completedStatus") String completedStatus,
+            @Param("completedStatuses") List<String> completedStatuses,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
@@ -154,14 +203,25 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query("""
            select count(o) from Order o
            where o.assignee.id = :staffId
-             and o.status = :completedStatus
-             and o.updatedAt >= :from
-             and o.updatedAt < :to
+             and o.status in :completedStatuses
+             and o.pickedAt is not null
+             and o.pickedAt >= :from
+             and o.pickedAt < :to
            """)
-    long countCompletedOrdersByStaffAndUpdatedAtRange(
+    long countCompletedOrdersByStaffAndPickedAtRange(
             @Param("staffId") Long staffId,
-            @Param("completedStatus") String completedStatus,
+            @Param("completedStatuses") List<String> completedStatuses,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
+    );
+
+    @Query("""
+           select count(o) from Order o
+           where o.assignee.id = :staffId
+             and o.status = :queuedStatus
+           """)
+    long countQueuedAssignments(
+            @Param("staffId") Long staffId,
+            @Param("queuedStatus") String queuedStatus
     );
 }

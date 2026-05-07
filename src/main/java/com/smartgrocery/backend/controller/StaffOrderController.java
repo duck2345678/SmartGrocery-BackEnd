@@ -33,15 +33,17 @@ public class StaffOrderController {
 
     private void assertStaffRole() {
         if (!SecurityUtils.hasAnyRole("STAFF", "ADMIN")) {
+            Long userId = SecurityUtils.getCurrentUserId();
+            System.err.println("[AUTH] Access Denied for User ID: " + userId + ". Required roles: [STAFF, ADMIN]");
             throw new AccessDeniedException("Access denied");
         }
     }
 
     @Operation(summary = "Danh sách đơn chờ nhận (không bị lease hoặc lease đã hết hạn)")
     @GetMapping("/queue")
-    public ResponseEntity<List<StaffOrderDto>> getQueue() {
+    public ResponseEntity<List<StaffOrderDto>> getQueue(@AuthenticationPrincipal User user) {
         assertStaffRole();
-        return ResponseEntity.ok(staffOrderFlowService.getQueue());
+        return ResponseEntity.ok(staffOrderFlowService.getQueue(user));
     }
 
     @Operation(summary = "Đơn đang được phân cho chính staff hiện tại (ASSIGNED/PICKING + lease còn hạn)")

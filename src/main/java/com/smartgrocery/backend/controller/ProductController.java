@@ -19,10 +19,13 @@ public class ProductController {
     @Autowired
     private ProductService productService;
 
-    @Operation(summary = "Láº¥y danh sÃ¡ch sáº£n pháº©m (cÃ³ phÃ¢n trang)")
+    @Operation(summary = "Lấy danh sách sản phẩm (có phân trang, tìm kiếm, lọc theo category)")
     @GetMapping
-    public ResponseEntity<Page<ProductDto>> getAllProducts(Pageable pageable) {
-        return ResponseEntity.ok(productService.getAllProducts(pageable));
+    public ResponseEntity<Page<ProductDto>> getAllProducts(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Long categoryId,
+            Pageable pageable) {
+        return ResponseEntity.ok(productService.getProducts(search, categoryId, pageable));
     }
 
     @Operation(summary = "Láº¥y chi tiáº¿t sáº£n pháº©m theo ID")

@@ -16,6 +16,7 @@ import com.smartgrocery.backend.entity.ProductVariant;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.entity.Warehouse;
 import com.smartgrocery.backend.exception.OrderAssignmentConflictException;
+import com.smartgrocery.backend.repository.AttendanceRecordRepository;
 import com.smartgrocery.backend.repository.InventoryStockRepository;
 import com.smartgrocery.backend.repository.OrderItemRepository;
 import com.smartgrocery.backend.repository.OrderRepository;
@@ -46,10 +47,15 @@ public class StaffOrderFlowService {
     private static final String STATUS_ASSIGNED = "ASSIGNED";
     private static final String STATUS_PICKING = "PICKING";
     private static final String STATUS_PICKED = "PICKED";
-    private static final int LEASE_MINUTES = 10;
+    private static final String STATUS_READY_TO_SHIP = "READY_TO_SHIP";
+    private static final String STATUS_DELIVERING = "DELIVERING";
+        private static final int LEASE_MINUTES = 30;
 
     @Autowired
     private OrderRepository orderRepository;
+
+        @Autowired
+        private AttendanceRecordRepository attendanceRecordRepository;
 
     @Autowired
     private OrderItemRepository orderItemRepository;
@@ -67,9 +73,20 @@ public class StaffOrderFlowService {
     private Clock clock;
 
     @Transactional(readOnly = true, transactionManager = "transactionManager")
-    public List<StaffOrderDto> getQueue() {
+    public List<StaffOrderDto> getQueue(User staffUser) {
         LocalDateTime now = LocalDateTime.now(clock);
-        return orderRepository.findQueueForAssignment(STATUS_PENDING, now).stream()
+        List<StaffOrderDto> activeOrders = orderRepository.findActiveLeaseOrdersByStaff(
+                staffUser.getId(),
+                List.of(STATUS_ASSIGNED, STATUS_PICKING, STATUS_PICKED, STATUS_READY_TO_SHIP, STATUS_DELIVERING),
+                now
+        ).stream()
+                .map(this::toStaffOrderDto)
+                .collect(Collectors.toList());
+        if (!activeOrders.isEmpty()) {
+            return List.of();
+        }
+        return orderRepository.findPersonalQueueForAssignment(staffUser.getId(), "QUEUED").stream()
+                .limit(1)
                 .map(this::toStaffOrderDto)
                 .collect(Collectors.toList());
     }
@@ -79,7 +96,7 @@ public class StaffOrderFlowService {
         LocalDateTime now = LocalDateTime.now(clock);
         return orderRepository.findActiveLeaseOrdersByStaff(
                         staffUser.getId(),
-                        List.of(STATUS_ASSIGNED, STATUS_PICKING),
+                        List.of(STATUS_ASSIGNED, STATUS_PICKING, STATUS_PICKED, STATUS_READY_TO_SHIP, STATUS_DELIVERING),
                         now
                 ).stream()
                 .findFirst()
@@ -89,17 +106,26 @@ public class StaffOrderFlowService {
     @Transactional(value = "transactionManager")
     public AssignOrderResponse assignOrder(Long orderId, User staffUser) {
         LocalDateTime now = LocalDateTime.now(clock);
+        ensureStaffInShift(staffUser);
+        long activeCount = orderRepository.countActiveAssignments(
+                staffUser.getId(),
+                List.of(STATUS_ASSIGNED, STATUS_PICKING, STATUS_PICKED, STATUS_READY_TO_SHIP, STATUS_DELIVERING),
+                now
+        );
+        if (activeCount > 0) {
+            throw new OrderAssignmentConflictException("Bạn đang xử lý một đơn hàng. Vui lòng hoàn thành đơn hiện tại trước khi nhận đơn mới.");
+        }
         LocalDateTime leaseExpiresAt = now.plusMinutes(LEASE_MINUTES);
-        int updated = orderRepository.assignIfAvailable(
+        int updated = orderRepository.acceptQueuedOrder(
                 orderId,
                 staffUser.getId(),
                 leaseExpiresAt,
                 STATUS_ASSIGNED,
-                STATUS_PENDING,
+                "QUEUED",
                 now
         );
         if (updated == 0) {
-            throw new OrderAssignmentConflictException("Order already assigned to someone else");
+            throw new OrderAssignmentConflictException("Order is not in your queue or no longer available");
         }
         return AssignOrderResponse.builder()
                 .orderId(orderId)
@@ -112,6 +138,7 @@ public class StaffOrderFlowService {
     @Transactional(value = "transactionManager")
     public AssignOrderResponse heartbeat(Long orderId, User staffUser) {
         LocalDateTime now = LocalDateTime.now(clock);
+                ensureStaffInShift(staffUser);
         LocalDateTime leaseExpiresAt = now.plusMinutes(LEASE_MINUTES);
         int updated = orderRepository.heartbeatLease(
                 orderId,
@@ -121,7 +148,7 @@ public class StaffOrderFlowService {
                 now
         );
         if (updated == 0) {
-            throw new RuntimeException("unauthorized heartbeat or lease expired");
+            throw new IllegalArgumentException("Không thể gia hạn: đơn hàng không hợp lệ hoặc đã hết hạn (invalid heartbeat)");
         }
         Order order = orderRepository.findById(orderId).orElseThrow(() -> new RuntimeException("Order not found"));
         return AssignOrderResponse.builder()
@@ -134,6 +161,7 @@ public class StaffOrderFlowService {
 
     @Transactional(value = "transactionManager")
     public AssignOrderResponse release(Long orderId, User staffUser) {
+                ensureStaffInShift(staffUser);
         int updated = orderRepository.releaseAssignment(
                 orderId,
                 staffUser.getId(),
@@ -141,7 +169,7 @@ public class StaffOrderFlowService {
                 List.of(STATUS_ASSIGNED, STATUS_PICKING)
         );
         if (updated == 0) {
-            throw new RuntimeException("unauthorized release");
+            throw new IllegalArgumentException("Không thể bỏ qua: đơn hàng không hợp lệ (invalid release)");
         }
         return AssignOrderResponse.builder()
                 .orderId(orderId)
@@ -154,21 +182,37 @@ public class StaffOrderFlowService {
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public StaffPickOrderDto getPickList(Long orderId, User staffUser) {
         Order order = orderRepository.findById(orderId).orElseThrow(() -> new RuntimeException("Order not found"));
+                ensureStaffInShift(staffUser);
         ensureValidLeaseOwner(order, staffUser);
         List<OrderItem> items = orderItemRepository.findByOrder_IdOrderByVariant_AisleLocationAsc(orderId);
+        String addressLine = order.getAddress() != null
+                ? order.getAddress().getStreetAddress() + ", " + order.getAddress().getWard() + ", " + order.getAddress().getDistrict()
+                : null;
         return StaffPickOrderDto.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
                 .status(order.getStatus())
                 .assigneeId(order.getAssignee() != null ? order.getAssignee().getId() : null)
                 .leaseExpiresAt(order.getLeaseExpiresAt())
+                .packingPhotoUrl(order.getPackingPhotoUrl())
+                .deliveryPhotoUrl(order.getDeliveryPhotoUrl())
                 .items(items.stream().map(this::toPickItemDto).collect(Collectors.toList()))
+                .customerName(order.getUser() != null ? order.getUser().getFullName() : null)
+                .customerPhone(order.getUser() != null ? order.getUser().getPhone() : null)
+                .customerEmail(order.getUser() != null ? order.getUser().getEmail() : null)
+                .addressLine(addressLine)
+                .paymentMethod(order.getPaymentMethod())
+                .subtotal(order.getSubtotal())
+                .totalAmount(order.getTotalAmount())
+                .orderDate(order.getCreatedAt())
+                .deliveryDate(order.getDeliveredAt())
                 .build();
     }
 
     @Transactional(value = "transactionManager")
     public StaffPickOrderDto completePicking(Long orderId, User staffUser, CompletePickingRequest request) {
         Order order = orderRepository.findById(orderId).orElseThrow(() -> new RuntimeException("Order not found"));
+                ensureStaffInShift(staffUser);
         ensureValidLeaseOwner(order, staffUser);
         if (request == null || request.getPickedItems() == null || request.getPickedItems().isEmpty()) {
             throw new IllegalArgumentException("Thiếu pickedItems");
@@ -197,48 +241,8 @@ public class StaffOrderFlowService {
             }
 
             boolean substituted = Boolean.TRUE.equals(picked.getIsSubstituted());
-            if (substituted && !Boolean.TRUE.equals(item.getAllowSubstitution())) {
-                throw new IllegalArgumentException("Item không cho phép thay thế: " + item.getId());
-            }
-
             if (substituted) {
-                if (picked.getSubstitutedVariantId() == null) {
-                    throw new IllegalArgumentException("Thiếu substitutedVariantId cho item thay thế");
-                }
-                ProductVariant subVariant = productVariantRepository.findById(picked.getSubstitutedVariantId())
-                        .orElseThrow(() -> new IllegalArgumentException("Substituted variant không tồn tại"));
-
-                BigDecimal substitutedCurrentPrice = subVariant.getNetPrice() != null ? subVariant.getNetPrice() : BigDecimal.ZERO;
-                BigDecimal originalUnitPrice = item.getUnitPrice() != null ? item.getUnitPrice() : BigDecimal.ZERO;
-                if (substitutedCurrentPrice.compareTo(originalUnitPrice) > 0) {
-                    throw new IllegalArgumentException("Giá thay thế không được cao hơn giá gốc");
-                }
-
-                // Restore reserved/deducted stock of original item at checkout
-                InventoryStock stockOriginal = inventoryStockRepository.findByWarehouseIdAndVariantId(warehouse.getId(), item.getVariant().getId())
-                        .orElseThrow(() -> new RuntimeException("Không tìm thấy tồn kho món gốc"));
-                stockOriginal.setAvailableQuantity((stockOriginal.getAvailableQuantity() != null ? stockOriginal.getAvailableQuantity() : 0) + orderedQty);
-                inventoryStockRepository.save(stockOriginal);
-
-                // Deduct stock for substituted item with actual picked quantity
-                InventoryStock stockSub = inventoryStockRepository.findByWarehouseIdAndVariantId(warehouse.getId(), subVariant.getId())
-                        .orElseThrow(() -> new RuntimeException("Không tìm thấy tồn kho món thay thế"));
-                int availableSub = stockSub.getAvailableQuantity() != null ? stockSub.getAvailableQuantity() : 0;
-                if (availableSub < actualQty) {
-                    throw new RuntimeException("Món thay thế không đủ tồn kho");
-                }
-                stockSub.setAvailableQuantity(availableSub - actualQty);
-                inventoryStockRepository.save(stockSub);
-
-                item.setIsSubstituted(true);
-                item.setSubstitutedVariant(subVariant);
-                item.setSubstitutionReason(picked.getReason());
-                item.setPickedQuantity(actualQty);
-                BigDecimal line = substitutedCurrentPrice.multiply(BigDecimal.valueOf(actualQty));
-                item.setSubtotal(line);
-                item.setTotalPrice(line);
-                orderItemRepository.save(item);
-                newSubtotal = newSubtotal.add(line);
+                throw new IllegalArgumentException("Thay thế tương đương đã bị vô hiệu hóa hệ thống");
             } else {
                 // Keep original item, return any unpicked quantity back to stock
                 int returnedQty = orderedQty - actualQty;
@@ -263,6 +267,7 @@ public class StaffOrderFlowService {
         order.setSubtotal(newSubtotal);
         order.setTotalAmount(newSubtotal.add(order.getShippingFee() != null ? order.getShippingFee() : BigDecimal.ZERO));
         order.setStatus(STATUS_PICKED);
+        order.setPickedAt(LocalDateTime.now(clock));
         order.setLeaseExpiresAt(null);
         orderRepository.save(order);
 
@@ -275,16 +280,17 @@ public class StaffOrderFlowService {
         LocalDateTime from = effectiveDate.atStartOfDay();
         LocalDateTime to = effectiveDate.plusDays(1).atStartOfDay();
 
-        long completedCount = orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(
+        List<String> completedStatuses = List.of("DELIVERED");
+        long completedCount = orderRepository.countCompletedOrdersByStaffAndPickedAtRange(
                 staffUser.getId(),
-                STATUS_PICKED,
+                completedStatuses,
                 from,
                 to
         );
 
-        List<StaffPerformanceOrderDto> orders = orderRepository.findCompletedOrdersByStaffAndUpdatedAtRange(
+        List<StaffPerformanceOrderDto> orders = orderRepository.findCompletedOrdersByStaffAndPickedAtRange(
                         staffUser.getId(),
-                        STATUS_PICKED,
+                        completedStatuses,
                         from,
                         to
                 ).stream()
@@ -313,16 +319,16 @@ public class StaffOrderFlowService {
         LocalDate monthFrom = effectiveDate.withDayOfMonth(1);
         LocalDate monthTo = monthFrom.plusMonths(1).minusDays(1);
 
-        long weekCompletedCount = orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(
+        long weekCompletedCount = orderRepository.countCompletedOrdersByStaffAndPickedAtRange(
                 staffUser.getId(),
-                STATUS_PICKED,
+                List.of("DELIVERED"),
                 weekFrom.atStartOfDay(),
                 weekTo.plusDays(1).atStartOfDay()
         );
 
-        long monthCompletedCount = orderRepository.countCompletedOrdersByStaffAndUpdatedAtRange(
+        long monthCompletedCount = orderRepository.countCompletedOrdersByStaffAndPickedAtRange(
                 staffUser.getId(),
-                STATUS_PICKED,
+                List.of("DELIVERED"),
                 monthFrom.atStartOfDay(),
                 monthTo.plusDays(1).atStartOfDay()
         );
@@ -341,6 +347,7 @@ public class StaffOrderFlowService {
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public List<StaffSubstitutionOptionDto> getSubstitutions(Long orderId, Long orderItemId, User staffUser) {
         Order order = orderRepository.findById(orderId).orElseThrow(() -> new RuntimeException("Order not found"));
+                ensureStaffInShift(staffUser);
         ensureValidLeaseOwner(order, staffUser);
 
         OrderItem orderItem = orderItemRepository.findById(orderItemId)
@@ -404,18 +411,40 @@ public class StaffOrderFlowService {
         return options;
     }
 
+    /* Post-picking states: lease is no longer relevant once picking is done */
+    private static final Set<String> POST_PICKING_STATUSES = Set.of(
+            STATUS_PICKED, STATUS_READY_TO_SHIP, STATUS_DELIVERING, "DELIVERED"
+    );
+
     private void ensureValidLeaseOwner(Order order, User staffUser) {
-        LocalDateTime now = LocalDateTime.now(clock);
+        // 1. Must have an assignee
         if (order.getAssignee() == null || order.getAssignee().getId() == null) {
-            throw new RuntimeException("unauthorized: order is not assigned");
+            throw new IllegalArgumentException("Đơn hàng chưa được nhận xử lý.");
         }
+        // 2. Must be assigned to THIS staff
         if (!order.getAssignee().getId().equals(staffUser.getId())) {
-            throw new RuntimeException("unauthorized: order assigned to another staff");
+            throw new IllegalArgumentException("Đơn hàng đã được nhận bởi nhân viên khác.");
         }
+        // 3. Skip lease check for post-picking states (lease was cleared by completePicking)
+        if (POST_PICKING_STATUSES.contains(order.getStatus())) {
+            return;
+        }
+        // 4. During picking phase: lease must be valid
+        LocalDateTime now = LocalDateTime.now(clock);
         if (order.getLeaseExpiresAt() == null || order.getLeaseExpiresAt().isBefore(now)) {
-            throw new RuntimeException("unauthorized: lease expired");
+            throw new IllegalArgumentException("Thời gian xử lý đơn hàng đã hết hạn. Vui lòng nhận lại đơn.");
         }
     }
+
+        private void ensureStaffInShift(User staffUser) {
+                LocalDate today = LocalDate.now(clock);
+                boolean activeShift = attendanceRecordRepository
+                                .findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(staffUser.getId(), today)
+                                .isPresent();
+                if (!activeShift) {
+                        throw new OrderAssignmentConflictException("Nhân viên phải đang trong ca làm việc để xử lý đơn hàng.");
+                }
+        }
 
     private StaffPickItemDto toPickItemDto(OrderItem item) {
         return StaffPickItemDto.builder()
@@ -428,8 +457,8 @@ public class StaffOrderFlowService {
                 .aisleLocation(item.getVariant().getAisleLocation())
                 .orderedQuantity(item.getQuantity())
                 .pickedQuantity(item.getPickedQuantity())
-                .allowSubstitution(item.getAllowSubstitution())
                 .unitPrice(item.getUnitPrice())
+                .imageUrl(item.getVariant() != null && item.getVariant().getProduct() != null ? item.getVariant().getProduct().getImage() : null)
                 .build();
     }
 

@@ -1,7 +1,5 @@
 package com.smartgrocery.backend.security;
 
-import com.smartgrocery.backend.entity.Role;
-import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,9 +10,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Optional;
-
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -33,11 +28,6 @@ public class IdorSecurityTest {
     @WithMockUser(username = "user1@example.com", roles = "CUSTOMER")
     public void whenUserAccessesAnotherUserProfile_thenReturns403() throws Exception {
         // Setup: Current user has ID 1, Target user has ID 2
-        User currentUser = User.builder()
-                .id(1L)
-                .email("user1@example.com")
-                .role(Role.builder().name("CUSTOMER").build())
-                .build();
 
         // Note: For the logic in SecurityUtils to pick up the ID, 
         // the Principal in the SecurityContext must be a User object.

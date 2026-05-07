@@ -7,7 +7,6 @@ import com.smartgrocery.backend.repository.OrderRepository;
 import com.smartgrocery.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,7 +20,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class AutoOrderDispatchService {
+public class OrderDispatchService {
 
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_ASSIGNED = "ASSIGNED";
@@ -39,6 +38,28 @@ public class AutoOrderDispatchService {
     @Transactional(value = "transactionManager")
     public boolean tryAutoAssign(Long orderId) {
         LocalDateTime now = LocalDateTime.now(clock);
+        var staff = pickBestStaff(now);
+        if (staff == null) {
+            return false;
+        }
+        return assignToQueue(orderId, staff, now);
+    }
+
+    @Transactional(value = "transactionManager")
+    public int dispatchPendingOrdersNow() {
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<Order> queue = orderRepository.findQueueForAssignment(STATUS_PENDING, now);
+        int assigned = 0;
+        for (Order order : queue) {
+            var staff = pickBestStaff(now);
+            if (staff != null && assignToQueue(order.getId(), staff, now)) {
+                assigned++;
+            }
+        }
+        return assigned;
+    }
+
+    private User pickBestStaff(LocalDateTime now) {
         LocalDate today = now.toLocalDate();
         List<User> candidates = userRepository.findByRole_NameAndStatus(STAFF_ROLE, ACTIVE_STATUS).stream()
                 .filter(staff -> attendanceRecordRepository
@@ -46,67 +67,44 @@ public class AutoOrderDispatchService {
                         .isPresent())
                 .toList();
         if (candidates.isEmpty()) {
-            return false;
+            return null;
         }
 
-        List<StaffCandidate> ranked = candidates.stream()
+        return candidates.stream()
                 .map(staff -> new StaffCandidate(
                         staff,
                         orderRepository.countActiveAssignments(staff.getId(), List.of(STATUS_ASSIGNED, STATUS_PICKING), now),
+                        orderRepository.countQueuedAssignments(staff.getId(), STATUS_QUEUED),  // Check if staff already has 1 queued backup order
                         orderRepository.findLastAssignedAt(staff.getId())
                 ))
+                .filter(c -> c.queuedCount() == 0)  // Only staff without a queued backup order
                 .sorted(Comparator
                         .comparingLong(StaffCandidate::activeLoad)
                         .thenComparing(StaffCandidate::lastAssignedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
                         .thenComparing(c -> c.staff().getId()))
-                .toList();
-
-        for (StaffCandidate candidate : ranked) {
-            LocalDateTime leaseExpiresAt = now.plusMinutes(LEASE_MINUTES);
-            int updated = orderRepository.assignIfAvailable(
-                    orderId,
-                    candidate.staff().getId(),
-                    leaseExpiresAt,
-                    STATUS_ASSIGNED,
-                    STATUS_PENDING,
-                    now
-            );
-            if (updated > 0) {
-                notifyAssignedStaff(orderId, candidate.staff());
-                return true;
-            }
-        }
-        return false;
+                .map(StaffCandidate::staff)
+                .findFirst()
+                .orElse(null);
     }
 
-    @Transactional(value = "transactionManager")
-    @Scheduled(fixedDelay = 15000)
-    public void reconcileAndDispatchQueue() {
-        LocalDateTime now = LocalDateTime.now(clock);
-        int released = orderRepository.releaseExpiredLeases(STATUS_PENDING, List.of(STATUS_ASSIGNED, STATUS_PICKING), now);
-        if (released > 0) {
-            log.info("Released {} expired leases back to PENDING", released);
-        }
+    private static final String STATUS_QUEUED = "QUEUED";
 
-        List<Order> activeAssignments = orderRepository.findActiveAssignments(List.of(STATUS_ASSIGNED, STATUS_PICKING));
-        LocalDate today = LocalDate.now(clock);
-        for (Order order : activeAssignments) {
-            User staff = order.getAssignee();
-            if (staff != null) {
-                boolean activeShift = attendanceRecordRepository
-                        .findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(staff.getId(), today)
-                        .isPresent();
-                if (!activeShift) {
-                    orderRepository.releaseAssignment(order.getId(), staff.getId(), STATUS_PENDING, List.of(STATUS_ASSIGNED, STATUS_PICKING));
-                    log.info("Released order {} back to PENDING because assignee {} is no longer in shift", order.getId(), staff.getId());
-                }
-            }
+    private boolean assignToQueue(Long orderId, User staff, LocalDateTime now) {
+        LocalDateTime leaseExpiresAt = now.plusMinutes(LEASE_MINUTES);
+        int updated = orderRepository.assignIfAvailable(
+                orderId,
+                staff.getId(),
+                leaseExpiresAt,
+                STATUS_QUEUED,
+                STATUS_PENDING,
+                now
+        );
+        if (updated > 0) {
+            orderRepository.touchAssignedAt(orderId, now);
+            notifyAssignedStaff(orderId, staff);
+            return true;
         }
-
-        List<Order> queue = orderRepository.findQueueForAssignment(STATUS_PENDING, now);
-        for (Order order : queue) {
-            tryAutoAssign(order.getId());
-        }
+        return false;
     }
 
     private void notifyAssignedStaff(Long orderId, User staff) {
@@ -123,5 +121,33 @@ public class AutoOrderDispatchService {
         }
     }
 
-    private record StaffCandidate(User staff, long activeLoad, LocalDateTime lastAssignedAt) {}
+    private static final class StaffCandidate {
+        private final User staff;
+        private final long activeLoad;
+        private final long queuedCount;
+        private final LocalDateTime lastAssignedAt;
+
+        private StaffCandidate(User staff, long activeLoad, long queuedCount, LocalDateTime lastAssignedAt) {
+            this.staff = staff;
+            this.activeLoad = activeLoad;
+            this.queuedCount = queuedCount;
+            this.lastAssignedAt = lastAssignedAt;
+        }
+
+        private User staff() {
+            return staff;
+        }
+
+        private long activeLoad() {
+            return activeLoad;
+        }
+
+        private long queuedCount() {
+            return queuedCount;
+        }
+
+        private LocalDateTime lastAssignedAt() {
+            return lastAssignedAt;
+        }
+    }
 }
