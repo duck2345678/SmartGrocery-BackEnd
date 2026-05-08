@@ -31,6 +31,12 @@ public class OrderController {
         return ResponseEntity.ok(orderService.getUserOrders(user.getId()));
     }
 
+    @Operation(summary = "Lấy tất cả đơn hàng (Admin)")
+    @GetMapping("/admin/all")
+    public ResponseEntity<List<OrderDto>> getAllOrders() {
+        return ResponseEntity.ok(orderService.getAllOrders());
+    }
+
     @Operation(summary = "Lấy chi tiết đơn hàng")
     @GetMapping("/{orderId}")
     public ResponseEntity<OrderDto> getOrderDetail(

@@ -220,6 +220,13 @@ public class OrderService {
                 .collect(Collectors.toList());
     }
 
+    public List<OrderDto> getAllOrders() {
+        // Admin only - no ownership check needed
+        return orderRepository.findAll().stream()
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
+    }
+
     public OrderDto getOrderDetail(Long userId, Long orderId) {
         SecurityUtils.verifyOwnershipOrAdmin(userId);
         Order order = orderRepository.findById(orderId)

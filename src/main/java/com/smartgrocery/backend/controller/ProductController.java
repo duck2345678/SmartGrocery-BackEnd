@@ -44,4 +44,13 @@ public class ProductController {
             return ResponseEntity.notFound().build();
         }
     }
+
+    @Operation(summary = "Tìm kiếm sản phẩm theo tên hoặc danh mục")
+    @GetMapping("/search")
+    public ResponseEntity<Page<ProductDto>> searchProducts(
+            @RequestParam String query,
+            Pageable pageable
+    ) {
+        return ResponseEntity.ok(productService.searchProducts(query, pageable));
+    }
 }

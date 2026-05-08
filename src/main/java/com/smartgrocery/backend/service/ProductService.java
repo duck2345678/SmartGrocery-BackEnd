@@ -55,6 +55,13 @@ public class ProductService {
         return mapToDto(product, purchaseCount);
     }
 
+    public Page<ProductDto> searchProducts(String query, Pageable pageable) {
+        Page<Product> page = productRepository.findByNameContainingIgnoreCaseOrCategory_NameContainingIgnoreCase(query, query, pageable);
+        List<Long> productIds = page.getContent().stream().map(Product::getId).toList();
+        Map<Long, Long> purchaseCountByProductId = getPurchaseCountByProductIds(productIds);
+        return page.map(product -> mapToDto(product, purchaseCountByProductId.getOrDefault(product.getId(), 0L)));
+    }
+
     private ProductDto mapToDto(Product product, Long purchaseCount) {
         List<ProductVariant> variants = productVariantRepository.findByProduct_Id(product.getId());
 
