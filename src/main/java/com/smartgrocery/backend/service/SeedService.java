@@ -1,10 +1,8 @@
 package com.smartgrocery.backend.service;
 
-import com.smartgrocery.backend.dto.CreateOrderRequest;
-import com.smartgrocery.backend.dto.OrderItemRequest;
 import com.smartgrocery.backend.entity.*;
 import com.smartgrocery.backend.entity.graph.ProductNode;
-import com.smartgrocery.backend.repository.*;
+import com.smartgrocery.backend.repository.jpa.*;
 import com.smartgrocery.backend.repository.graph.ProductNodeRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -14,14 +12,30 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.jdbc.core.JdbcTemplate;
 import java.math.BigDecimal;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class SeedService {
+    private record SeedProduct(
+            String code,
+            String name,
+            Category cat,
+            String sku,
+            String vName,
+            String unit,
+            BigDecimal price,
+            int stock,
+            String shortDesc,
+            String desc,
+            String originCountry,
+            String image,
+            boolean isStaple
+    ) {}
 
     @Autowired
     private CategoryRepository categoryRepository;
@@ -60,16 +74,10 @@ public class SeedService {
     private InventoryStockRepository inventoryStockRepository;
 
     @Autowired
-    private OrderRepository orderRepository;
+    private UserNutritionProfileRepository nutritionProfileRepository;
 
     @Autowired
-    private OrderService orderService;
-
-    @Autowired
-    private ShiftScheduleRepository shiftScheduleRepository;
-
-    @Autowired
-    private AttendanceRecordRepository attendanceRecordRepository;
+    private JdbcTemplate jdbcTemplate;
 
     private TransactionTemplate neo4jTransactionTemplate;
 
@@ -82,6 +90,8 @@ public class SeedService {
 
     @Transactional
     public void seedData() {
+        // 0. Database Migration (Fix for Supabase/Hibernate column sync)
+        migrateSchema();
 
         // 1. Roles
         if (roleRepository.count() == 0) {
@@ -94,7 +104,6 @@ public class SeedService {
 
         // 2. Users
         Role customerRole = roleRepository.findByName("CUSTOMER").orElse(null);
-        Role staffRole = roleRepository.findByName("STAFF").orElse(null);
         Role adminRole = roleRepository.findByName("ADMIN").orElse(null);
 
         if (customerRole != null && !userRepository.existsByEmail("customer.p0@smartgrocery.com")) {
@@ -118,39 +127,29 @@ public class SeedService {
                     .city("TP. Hồ Chí Minh")
                     .isDefault(true)
                     .build());
-            System.out.println(">> Seeded P0 Customer: customer.p0@smartgrocery.com / password123");
-        }
-
-        User staff = userRepository.findByEmail("staff.p0@smartgrocery.com").orElse(null);
-        if (staff == null) {
-            staff = User.builder()
-                    .email("staff.p0@smartgrocery.com")
-                    .passwordHash(passwordEncoder.encode("password123"))
-                    .fullName("P0 Staff")
-                    .phone("0912345678")
-                    .role(staffRole)
-                    .status("ACTIVE")
-                    .build();
-            userRepository.save(staff);
-            System.out.println(">> Seeded P0 Staff: staff.p0@smartgrocery.com / password123");
-        } else if (staffRole != null && !staffRole.equals(staff.getRole())) {
-            staff.setRole(staffRole);
-            staff.setStatus("ACTIVE");
-            userRepository.save(staff);
-            System.out.println(">> Updated P0 Staff role to STAFF");
+            
+            // Sample Nutrition Profile: Gym enthusiast, High Protein, Allergy to Seafood
+            nutritionProfileRepository.save(UserNutritionProfile.builder()
+                    .user(user)
+                    .healthGoals("Tăng cơ, giảm mỡ (Gym)")
+                    .dietaryPreference("High Protein / Low Carb")
+                    .allergies("Hải sản, tôm, cua")
+                    .bmi(java.math.BigDecimal.valueOf(24.5))
+                    .build());
+            
+            System.out.println(">> Seeded P0 Customer & Nutrition Profile");
         }
 
         if (adminRole != null && !userRepository.existsByEmail("admin.p0@smartgrocery.com")) {
-            User admin = User.builder()
+            userRepository.save(User.builder()
                     .email("admin.p0@smartgrocery.com")
                     .passwordHash(passwordEncoder.encode("password123"))
                     .fullName("P0 Admin")
                     .phone("0900000000")
                     .role(adminRole)
                     .status("ACTIVE")
-                    .build();
-            userRepository.save(admin);
-            System.out.println(">> Seeded P0 Admin: admin.p0@smartgrocery.com / password123");
+                    .build());
+            System.out.println(">> Seeded P0 Admin");
         }
 
         // 3. AI Models
@@ -160,305 +159,449 @@ public class SeedService {
                             .modelType("CHAT").isActive(true).build(),
                     AIModel.builder().modelCode("TEXT-EMBEDDING-004").provider("GOOGLE").modelName("Text Embedding 004")
                             .modelType("EMBEDDING").isActive(true).build()));
-            System.out.println(">> Seeded AI Models!");
         }
 
-        // 4. Warehouses & Suppliers
-        if (warehouseRepository.count() == 0) {
-            warehouseRepository
-                    .save(Warehouse.builder().code("WH_MAIN").name("Kho Trung Tâm").location("TP. Thủ Đức").build());
-            supplierRepository.save(
-                    Supplier.builder().name("Nông Trại Xanh").contactPerson("Anh Minh").phone("0900112233").build());
-            System.out.println(">> Seeded Logistics!");
+        // 4. Logistics
+        Warehouse mainWarehouse = warehouseRepository.findByCode("WH_MAIN")
+                .orElseGet(() -> warehouseRepository.save(Warehouse.builder().code("WH_MAIN").name("Kho Trung Tâm").location("TP. Thủ Đức").build()));
+
+        if (supplierRepository.count() == 0) {
+            supplierRepository.save(Supplier.builder().name("Nông Trại Xanh").contactPerson("Anh Minh").phone("0900112233").build());
         }
 
-        // 5. Catalog
-        Warehouse mainWarehouse = warehouseRepository.findAll().stream().findFirst()
-                .orElseGet(() -> warehouseRepository
-                        .save(Warehouse.builder().code("WH_MAIN").name("Kho Trung Tâm").location("TP. Thủ Đức").build()));
+        // 5. Categories
+        Category veg = categoryRepository.findByCategoryCode("CAT_VEG").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_VEG").name("Rau củ tươi").description("Rau củ và nông sản tươi mỗi ngày").build()));
+        Category fruit = categoryRepository.findByCategoryCode("CAT_FRUIT").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_FRUIT").name("Trái cây").description("Trái cây nội địa và nhập khẩu").build()));
+        Category meat = categoryRepository.findByCategoryCode("CAT_MEAT").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_MEAT").name("Thịt & Hải sản").description("Thịt, trứng, thủy hải sản tươi sống").build()));
+        Category dairy = categoryRepository.findByCategoryCode("CAT_DAIRY").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_DAIRY").name("Sữa & Trứng").description("Sữa và các chế phẩm từ sữa").build()));
+        Category staple = categoryRepository.findByCategoryCode("CAT_STAPLE").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_STAPLE").name("Nhu yếu phẩm").description("Thực phẩm khô, gia vị, đồ hộp tiện lợi").build()));
+        Category house = categoryRepository.findByCategoryCode("CAT_HOU").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_HOU").name("Gia dụng").description("Đồ dùng gia đình và chăm sóc nhà cửa").build()));
+        Category drink = categoryRepository.findByCategoryCode("CAT_DRINK").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_DRINK").name("Đồ uống").description("Nước giải khát, trà, cà phê, bia rượu").build()));
+        Category frozen = categoryRepository.findByCategoryCode("CAT_FROZEN").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_FROZEN").name("Chế biến & Đông lạnh").description("Thực phẩm chế biến nhanh và đông lạnh").build()));
+        Category snack = categoryRepository.findByCategoryCode("CAT_SNACK").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_SNACK").name("Bánh kẹo & Ăn vặt").description("Bánh kẹo, snack, hạt dinh dưỡng").build()));
+        Category personal = categoryRepository.findByCategoryCode("CAT_PERSONAL").orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_PERSONAL").name("Chăm sóc cá nhân & Em bé").description("Mỹ phẩm, vệ sinh cá nhân, đồ cho bé").build()));
 
-        Category veg = categoryRepository.findByCategoryCode("CAT_VEG")
-                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_VEG").name("Rau củ").build()));
-        Category fruit = categoryRepository.findByCategoryCode("CAT_FRUIT")
-                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_FRUIT").name("Trái cây").build()));
-        Category dairy = categoryRepository.findByCategoryCode("CAT_DAIRY")
-                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_DAIRY").name("Sữa & trứng").build()));
-        Category meat = categoryRepository.findByCategoryCode("CAT_MEAT")
-                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_MEAT").name("Thịt & hải sản").build()));
-        Category staple = categoryRepository.findByCategoryCode("CAT_STAPLE")
-                .orElseGet(() -> categoryRepository.save(Category.builder().categoryCode("CAT_STAPLE").name("Nhu yếu phẩm").build()));
+        // 6. Products Catalog
+        List<SeedProduct> catalog = new ArrayList<>();
 
-        record SeedProduct(String code, String name, Category category, String sku, String barcode, String variantName, String unit, BigDecimal price, int stock) {}
-        List<SeedProduct> catalog = List.of(
-                new SeedProduct("P_BROC", "Bông cải xanh", veg, "SKU_B001", "BAR_B001", "Bông cải xanh 500g", "PACK", BigDecimal.valueOf(30000), 200),
-                new SeedProduct("P_CARROT", "Cà rốt Đà Lạt", veg, "SKU_V002", "BAR_V002", "Cà rốt 1kg", "BAG", BigDecimal.valueOf(28000), 200),
-                new SeedProduct("P_TOMATO", "Cà chua bi", veg, "SKU_V003", "BAR_V003", "Cà chua bi 500g", "BOX", BigDecimal.valueOf(25000), 200),
-                new SeedProduct("P_APPLE", "Táo đỏ Mỹ", fruit, "SKU_F001", "BAR_F001", "Táo đỏ 1kg", "BAG", BigDecimal.valueOf(68000), 200),
-                new SeedProduct("P_BANANA", "Chuối già Nam Mỹ", fruit, "SKU_F002", "BAR_F002", "Chuối 1 nải", "BUNCH", BigDecimal.valueOf(22000), 200),
-                new SeedProduct("P_ORANGE", "Cam sành", fruit, "SKU_F003", "BAR_F003", "Cam 1kg", "BAG", BigDecimal.valueOf(42000), 200),
-                new SeedProduct("P_MILK", "Sữa tươi không đường", dairy, "SKU_D001", "BAR_D001", "Hộp 1L", "BOX", BigDecimal.valueOf(33000), 200),
-                new SeedProduct("P_EGGS", "Trứng gà", dairy, "SKU_D002", "BAR_D002", "Vỉ 10 trứng", "TRAY", BigDecimal.valueOf(32000), 200),
-                new SeedProduct("P_PORK", "Thịt heo ba rọi", meat, "SKU_M001", "BAR_M001", "500g", "PACK", BigDecimal.valueOf(75000), 200),
-                new SeedProduct("P_RICE", "Gạo ST25", staple, "SKU_S001", "BAR_S001", "Túi 5kg", "BAG", BigDecimal.valueOf(165000), 200)
-        );
+        addSeedGroup(catalog, veg, "P_VEGF", "SKU_VF", "PACK", "Gói 500g", 120, 18000, "Việt Nam", Arrays.asList(
+                "Cải thìa", "Xà lách lolo xanh", "Cà chua beef", "Dưa leo baby", "Khoai tây Đà Lạt", "Cà rốt", "Bông cải xanh (Súp lơ)",
+                "Hành tây", "Ớt chuông đủ màu", "Nấm kim châm", "Bắp cải tím", "Khoai lang mật", "Bí đỏ tròn", "Măng tây", "Khổ qua (Mướp đắng)"
+        ));
+        addSeedGroup(catalog, fruit, "P_FRUITA", "SKU_FA", "BAG", "Túi 1kg", 110, 42000, "Việt Nam", Arrays.asList(
+                "Táo Envy", "Chuối già Nam Mỹ", "Cam sành", "Nho mẫu đơn", "Bơ sáp", "Dưa hấu không hạt", "Xoài cát Hòa Lộc", "Dâu tây Đà Lạt",
+                "Bưởi da xanh", "Kiwis vàng"
+        ));
+        addSeedGroup(catalog, meat, "P_MEATM", "SKU_MM", "PACK", "Khay 500g", 90, 98000, "Việt Nam", Arrays.asList(
+                "Thịt heo xay", "Ba rọi heo (Ba chỉ)", "Sườn non heo", "Thăn bò Úc", "Bắp bò hoa", "Đùi gà góc tư", "Cánh gà tươi",
+                "Trứng gà ta (Hộp 10 quả)", "Trứng vịt lộn", "Tôm thẻ chân trắng", "Cá hồi phi lê", "Cá thu cắt khúc", "Mực ống tươi", "Nghêu sạch", "Chả cá thát lát"
+        ));
+        addSeedGroup(catalog, dairy, "P_DAIRY", "SKU_DY", "BOX", "Hộp 1L", 95, 32000, "Việt Nam", Arrays.asList(
+                "Sữa tươi tiệt trùng có đường", "Sữa hạt hạnh phúc (Sữa hạt)", "Sữa chua ăn có đường", "Sữa chua uống men sống", "Phô mai lát (Sandwich)",
+                "Bơ lạt tự nhiên", "Kem tươi (Whipping cream)", "Váng sữa cho bé", "Sữa đặc có bóng", "Phô mai con bò cười"
+        ));
+        addSeedGroup(catalog, staple, "P_STAPLE", "SKU_ST", "PACK", "Gói 500g", 140, 22000, "Việt Nam", Arrays.asList(
+                "Gạo ST25", "Mì tôm Hảo Hảo", "Miến dong", "Nước mắm cá cơm", "Dầu ăn hướng dương", "Hạt nêm từ thịt", "Đường tinh luyện", "Muối i-ốt",
+                "Tương ớt Chinsu", "Nước tương đậu nành", "Bột ngọt (Mì chính)", "Tiêu đen xay", "Bột mì đa năng", "Hạt chia Úc", "Ngũ cốc yến mạch"
+        ));
+        addSeedGroup(catalog, frozen, "P_FROZEN", "SKU_FRZ", "PACK", "Gói 500g", 80, 38000, "Việt Nam", Arrays.asList(
+                "Xúc xích Đức", "Cá viên chiên", "Há cảo tôm thịt", "Bánh bao nhân thịt trứng cút", "Pizza cấp đông", "Đậu hũ non", "Kim chi cải thảo",
+                "Chả giò tôm cua", "Lạp xưởng tươi", "Thịt xông khói"
+        ));
+        addSeedGroup(catalog, drink, "P_DRINK", "SKU_DRK", "BOTTLE", "Chai/Lon 330ml", 180, 12000, "Việt Nam", Arrays.asList(
+                "Coca-Cola (Lon 330ml)", "Nước khoáng Lavie", "Nước tăng lực Redbull", "Trà xanh đóng chai", "Bia Heineken", "Cà phê hòa tan 3in1",
+                "Trà túi lọc thảo mộc", "Nước ép cam nguyên chất", "Rượu vang đỏ", "Soda không đường"
+        ));
+        addSeedGroup(catalog, snack, "P_SNACK", "SKU_SNK", "PACK", "Gói 200g", 140, 26000, "Việt Nam", Arrays.asList(
+                "Bánh quy bơ OREO", "Khoai tây chiên Lay's", "Socola đen 70% cacao", "Hạt điều rang muối", "Khô gà lá chanh", "Kẹo dẻo trái cây",
+                "Bánh bông lan cuộn", "Rau củ quả sấy khô", "Rong biển ăn liền", "Hạnh nhân rang bơ"
+        ));
+        addSeedGroup(catalog, house, "P_HOUSEA", "SKU_HA", "BOTTLE", "Chai/Gói 750ml", 120, 35000, "Việt Nam", Arrays.asList(
+                "Nước giặt Ariel", "Nước rửa chén Sunlight", "Giấy vệ sinh (Cuộn)", "Dầu gội đầu thảo dược", "Kem đánh răng"
+        ));
+        addSeedGroup(catalog, veg, "P_VEGN", "SKU_VN", "PACK", "Gói 500g", 120, 17000, "Việt Nam", Arrays.asList(
+                "Rau muống nước", "Cải bẹ xanh", "Đậu cô ve", "Bí ngòi xanh", "Bắp Mỹ (Ngô ngọt)", "Nấm đùi gà", "Rau mồng tơi", "Củ cải trắng",
+                "Sả cây tươi", "Gừng già", "Ngò rí & Hành lá (Combo)", "Ớt hiểm trái", "Chanh không hạt", "Củ sen tươi", "Đậu bắp"
+        ));
+        addSeedGroup(catalog, fruit, "P_FRUITB", "SKU_FB", "BAG", "Túi 1kg", 110, 48000, "Việt Nam", Arrays.asList(
+                "Việt quất tươi", "Lê Hàn Quốc", "Na Thái", "Thanh long ruột đỏ", "Măng cụt", "Chôm chôm nhãn", "Dưa lưới Huỳnh Long", "Đu đủ chín cây",
+                "Lựu đỏ", "Ổi nữ hoàng"
+        ));
+        addSeedGroup(catalog, meat, "P_SEA", "SKU_SEA", "PACK", "Khay 500g", 80, 125000, "Việt Nam", Arrays.asList(
+                "Cua Cà Mau", "Bạch tuộc mini", "Cá lóc đồng làm sẵn", "Cá điêu hồng phi lê", "Tôm hùm Alaska", "Ốc hương", "Lươn đồng làm sạch",
+                "Cá nục bông", "Hàu sữa Pháp (Tách vỏ)", "Chả lụa que"
+        ));
+        addSeedGroup(catalog, dairy, "P_DAIRYB", "SKU_DB", "BOX", "Hộp/Gói 500g", 95, 34000, "Việt Nam", Arrays.asList(
+                "Sữa tươi tách béo", "Sữa đậu nành nguyên chất", "Kem hộp vị Vanilla", "Sữa chua không đường", "Phô mai Mozzarella bào sợi",
+                "Đậu hũ chiên sẵn", "Sườn non chay", "Chả lụa chay", "Nấm tuyết khô", "Sữa hạnh nhân không đường"
+        ));
+        addSeedGroup(catalog, staple, "P_STAPLEB", "SKU_SB", "PACK", "Gói/Chai 500g", 140, 26000, "Việt Nam", Arrays.asList(
+                "Dầu hào Maggi", "Giấm táo", "Sốt Mayonnaise", "Bột bắp", "Ngũ vị hương", "Mật ong hoa nhãn", "Sốt BBQ ướp thịt", "Bột cà ri",
+                "Tương đen ăn phở", "Chao môn", "Dầu mè thơm", "Me cục nấu canh chua", "Bột nghệ nguyên chất", "Màu dầu điều", "Muối tôm Tây Ninh"
+        ));
+        addSeedGroup(catalog, staple, "P_CONV", "SKU_CV", "PACK", "Hộp/Gói tiện lợi", 150, 28000, "Việt Nam", Arrays.asList(
+                "Cá nục sốt cà chua đóng hộp", "Thịt hộp Spam", "Pate gan heo", "Ngô ngọt đóng lon", "Đậu nành lên men (Natty)", "Cháo gói ăn liền",
+                "Bún tươi sấy khô", "Phở bò ăn liền (Dạng tô)", "Rong biển nấu canh", "Kim chi giá đỗ"
+        ));
+        addSeedGroup(catalog, personal, "P_PERSON", "SKU_PER", "PACK", "Gói/Chai cá nhân", 150, 30000, "Việt Nam", Arrays.asList(
+                "Sữa tắm dưỡng ẩm", "Sữa rửa mặt cho da dầu", "Kem chống nắng", "Bàn chải đánh răng mềm", "Nước súc miệng", "Dao cạo râu",
+                "Băng vệ sinh (Gói)", "Tã quần cho bé (Size L)", "Khăn ướt em bé", "Sữa bột công thức", "Bánh ăn dặm", "Phấn rôm",
+                "Dung dịch vệ sinh phụ nữ", "Nước rửa tay sát khuẩn", "Bông tẩy trang"
+        ));
+        addSeedGroup(catalog, house, "P_HOUSEB", "SKU_HB", "PACK", "Gói/Chai gia dụng", 160, 32000, "Việt Nam", Arrays.asList(
+                "Nước xả vải thơm lâu", "Nước lau sàn hương quế", "Nước tẩy nhà vệ sinh", "Nước lau kính", "Xịt côn trùng", "Túi rác đen (Cuộn)",
+                "Màng bọc thực phẩm", "Giấy bạc nướng thức ăn", "Miếng rửa chén (Combo 3 miếng)", "Găng tay cao su", "Sáp thơm phòng",
+                "Nước tẩy trắng quần áo", "Nước lau bếp đa năng", "Cọ quét nhà (Chổi)", "Pin AA (Vỉ 4 viên)"
+        ));
 
-        int createdCount = 0;
-        Map<String, BigDecimal> compareAtPriceBySku = new HashMap<>();
-        compareAtPriceBySku.put("SKU_B001", BigDecimal.valueOf(39000));   // Bông cải xanh: 30k -> 39k
-        compareAtPriceBySku.put("SKU_F001", BigDecimal.valueOf(82000));   // Táo đỏ Mỹ: 68k -> 82k
-        compareAtPriceBySku.put("SKU_D001", BigDecimal.valueOf(39000));   // Sữa tươi không đường: 33k -> 39k
-        compareAtPriceBySku.put("SKU_M001", BigDecimal.valueOf(89000));   // Thịt heo ba rọi: 75k -> 89k
-        compareAtPriceBySku.put("SKU_S001", BigDecimal.valueOf(185000));  // Gạo ST25: 165k -> 185k
         for (SeedProduct sp : catalog) {
             Product product = productRepository.findByProductCode(sp.code)
-                    .orElseGet(() -> {
-                        Product p = Product.builder()
-                                .productCode(sp.code)
-                                .name(sp.name)
-                                .category(sp.category)
-                                .shortDescription("Hàng mới về")
-                                .status("ACTIVE")
-                                .isFeatured(false)
-                                .build();
-                        return productRepository.save(p);
-                    });
+                    .orElseGet(() -> productRepository.save(Product.builder()
+                            .productCode(sp.code)
+                            .name(sp.name)
+                            .category(sp.cat)
+                            .shortDescription(sp.shortDesc)
+                            .description(sp.desc)
+                            .originCountry(sp.originCountry)
+                            .image(sp.image)
+                            .status("ACTIVE")
+                            .isFeatured(false)
+                            .isStaple(sp.isStaple)
+                            .build()));
+
+            boolean productChanged = false;
+            if (product.getCategory() == null) { product.setCategory(sp.cat); productChanged = true; }
+            if (product.getName() == null || product.getName().isBlank()) { product.setName(sp.name); productChanged = true; }
+            if (product.getShortDescription() == null || product.getShortDescription().isBlank()) { product.setShortDescription(sp.shortDesc); productChanged = true; }
+            if (product.getDescription() == null || product.getDescription().isBlank()) { product.setDescription(sp.desc); productChanged = true; }
+            if (product.getOriginCountry() == null || product.getOriginCountry().isBlank()) { product.setOriginCountry(sp.originCountry); productChanged = true; }
+            if (product.getImage() == null || product.getImage().isBlank()) { product.setImage(sp.image); productChanged = true; }
+            if (product.getStatus() == null || product.getStatus().isBlank()) { product.setStatus("ACTIVE"); productChanged = true; }
+            if (product.getIsFeatured() == null) { product.setIsFeatured(false); productChanged = true; }
+            if (productChanged) productRepository.save(product);
 
             ProductVariant variant = productVariantRepository.findBySku(sp.sku)
                     .orElseGet(() -> productVariantRepository.save(ProductVariant.builder()
                             .product(product)
                             .sku(sp.sku)
-                            .barcode(sp.barcode)
-                            .variantName(sp.variantName)
+                            .barcode("BAR_" + sp.sku)
+                            .variantName(sp.vName)
                             .unit(sp.unit)
+                            .packageSize(sp.vName)
+                            .weightGram(estimateWeightGram(sp.vName))
                             .netPrice(sp.price)
+                            .compareAtPrice(sp.price.multiply(BigDecimal.valueOf(1.1)))
+                            .costPrice(sp.price.multiply(BigDecimal.valueOf(0.78)))
+                            .vatPercent(BigDecimal.valueOf(8))
                             .status("ACTIVE")
                             .build()));
 
-            // Ensure several products always have real discount prices in DB for Home "Giảm giá hot".
-            BigDecimal compareAtPrice = compareAtPriceBySku.get(sp.sku);
-            if (compareAtPrice != null && compareAtPrice.compareTo(sp.price) > 0) {
-                if (variant.getCompareAtPrice() == null || variant.getCompareAtPrice().compareTo(compareAtPrice) != 0) {
-                    variant.setCompareAtPrice(compareAtPrice);
-                    productVariantRepository.save(variant);
-                }
+            boolean variantChanged = false;
+            if (variant.getProduct() == null) { variant.setProduct(product); variantChanged = true; }
+            if (variant.getBarcode() == null || variant.getBarcode().isBlank()) { variant.setBarcode("BAR_" + sp.sku); variantChanged = true; }
+            if (variant.getVariantName() == null || variant.getVariantName().isBlank()) { variant.setVariantName(sp.vName); variantChanged = true; }
+            if (variant.getUnit() == null || variant.getUnit().isBlank()) { variant.setUnit(sp.unit); variantChanged = true; }
+            if (variant.getPackageSize() == null || variant.getPackageSize().isBlank()) { variant.setPackageSize(sp.vName); variantChanged = true; }
+            if (variant.getWeightGram() == null || variant.getWeightGram() <= 0) { variant.setWeightGram(estimateWeightGram(sp.vName)); variantChanged = true; }
+            if (variant.getNetPrice() == null || variant.getNetPrice().compareTo(BigDecimal.ZERO) <= 0) { variant.setNetPrice(sp.price); variantChanged = true; }
+            if (variant.getCompareAtPrice() == null || variant.getCompareAtPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                variant.setCompareAtPrice(sp.price.multiply(BigDecimal.valueOf(1.1))); variantChanged = true;
             }
+            if (variant.getCostPrice() == null || variant.getCostPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                variant.setCostPrice(sp.price.multiply(BigDecimal.valueOf(0.78))); variantChanged = true;
+            }
+            if (variant.getVatPercent() == null) { variant.setVatPercent(BigDecimal.valueOf(8)); variantChanged = true; }
+            if (variant.getStatus() == null || variant.getStatus().isBlank()) { variant.setStatus("ACTIVE"); variantChanged = true; }
+            if (variantChanged) productVariantRepository.save(variant);
 
-            inventoryStockRepository.findByWarehouseIdAndVariantId(mainWarehouse.getId(), variant.getId())
-                    .orElseGet(() -> inventoryStockRepository.save(InventoryStock.builder()
+            InventoryStock inventoryStock = inventoryStockRepository.findByWarehouseIdAndVariantId(mainWarehouse.getId(), variant.getId())
+                    .orElseGet(() -> InventoryStock.builder()
                             .warehouse(mainWarehouse)
                             .variant(variant)
                             .availableQuantity(sp.stock)
                             .reservedQuantity(0)
-                            .build()));
-
-            createdCount++;
-        }
-        if (createdCount > 0) System.out.println(">> Seeded Catalog (10 products + inventory)!");
-
-        // 5.1 Long-name product for UI overflow testing
-        Product longNameProduct = productRepository.findByProductCode("P_LONG_NAME")
-                .orElseGet(() -> productRepository.save(Product.builder()
-                        .productCode("P_LONG_NAME")
-                        .name("Nước rửa chén siêu đậm đặc hương chanh tươi mát phiên bản giới hạn dùng để test tên sản phẩm dài 3 dòng trên UI")
-                        .category(staple)
-                        .shortDescription("Dùng để test overflow/ellipsis UI")
-                        .status("ACTIVE")
-                        .isFeatured(false)
-                        .build()));
-
-        ProductVariant longNameVariant = productVariantRepository.findBySku("SKU_LONG_001")
-                .orElseGet(() -> productVariantRepository.save(ProductVariant.builder()
-                        .product(longNameProduct)
-                        .sku("SKU_LONG_001")
-                        .barcode("BAR_LONG_001")
-                        .variantName("Chai 750ml")
-                        .unit("BOTTLE")
-                        .aisleLocation("Z9")
-                        .netPrice(BigDecimal.valueOf(89000))
-                        .status("ACTIVE")
-                        .build()));
-
-        inventoryStockRepository.findByWarehouseIdAndVariantId(mainWarehouse.getId(), longNameVariant.getId())
-                .orElseGet(() -> inventoryStockRepository.save(InventoryStock.builder()
-                        .warehouse(mainWarehouse)
-                        .variant(longNameVariant)
-                        .availableQuantity(200)
-                        .reservedQuantity(0)
-                        .build()));
-
-        // 5.2 Fulfillment test orders (real DB data for Staff UI testing)
-        try {
-            seedFulfillmentOrdersIfNeeded(longNameVariant.getId());
-        } catch (Exception e) {
-            System.err.println(">> Warning: Failed to seed fulfillment orders: " + e.getMessage());
+                            .build());
+            boolean stockChanged = false;
+            if (inventoryStock.getWarehouse() == null) { inventoryStock.setWarehouse(mainWarehouse); stockChanged = true; }
+            if (inventoryStock.getVariant() == null) { inventoryStock.setVariant(variant); stockChanged = true; }
+            if (inventoryStock.getAvailableQuantity() == null || inventoryStock.getAvailableQuantity() < 0) {
+                inventoryStock.setAvailableQuantity(sp.stock); stockChanged = true;
+            }
+            if (inventoryStock.getReservedQuantity() == null || inventoryStock.getReservedQuantity() < 0) {
+                inventoryStock.setReservedQuantity(0); stockChanged = true;
+            }
+            if (inventoryStock.getId() == null || stockChanged) inventoryStockRepository.save(inventoryStock);
         }
 
-        // 6. Graph (Neo4j)
+        // 6.1 Self-heal toàn bộ dữ liệu cũ để đảm bảo không còn null ngoài catalog hiện tại
+        backfillNullsForAllExistingProducts(staple);
+        backfillNullsForAllExistingVariants();
+        ensureInventoryStocksForAllVariants(mainWarehouse);
+
+        // 7. Sync Neo4j
         try {
             neo4jTransactionTemplate.executeWithoutResult(status -> {
-                if (productNodeRepository.count() == 0) {
-                    productRepository.findAll().forEach(p -> {
-                        ProductNode node = ProductNode.builder()
-                                .productId(p.getId())
-                                .name(p.getName())
-                                .build();
-                        productNodeRepository.save(node);
-                    });
-                    System.out.println(">> Synchronized Neo4j!");
-                }
+                productRepository.findAll().forEach(p -> {
+                    productNodeRepository.save(ProductNode.builder()
+                            .productId(p.getId())
+                            .name(p.getName() != null ? p.getName() : "Sản phẩm")
+                            .description(p.getDescription() != null ? p.getDescription() : "Chưa có mô tả")
+                            .price(0.0)
+                            .build());
+                });
             });
         } catch (Exception e) {
-            System.err.println(">> Warning: Neo4j synchronization failed (database may not be running): " + e.getMessage());
+            System.err.println("Neo4j sync skipped: " + e.getMessage());
         }
 
-        // 7. Seed Staff Shift Schedule and Attendance Records
-        final User finalStaff = staff;
-        if (finalStaff != null) {
-            java.time.LocalDate today = java.time.LocalDate.now();
-            java.time.LocalDate dayMinus3 = today.minusDays(3);
+        logSeedDataQuality();
+        System.out.println(">> Seed complete with " + catalog.size() + " products!");
+    }
+
+    private void logSeedDataQuality() {
+        List<Product> products = productRepository.findAll();
+        List<ProductVariant> variants = productVariantRepository.findAll();
+        List<InventoryStock> stocks = inventoryStockRepository.findAll();
+
+        List<String> productsWithNull = products.stream()
+                .filter(p -> p.getProductCode() == null || p.getName() == null || p.getCategory() == null || p.getDescription() == null
+                        || p.getShortDescription() == null || p.getOriginCountry() == null || p.getImage() == null
+                        || p.getStatus() == null || p.getIsFeatured() == null)
+                .map(p -> p.getProductCode() + " | " + p.getName())
+                .collect(Collectors.toList());
+
+        List<String> variantsWithNull = variants.stream()
+                .filter(v -> v.getProduct() == null || v.getSku() == null || v.getBarcode() == null || v.getVariantName() == null
+                        || v.getUnit() == null || v.getPackageSize() == null || v.getWeightGram() == null
+                        || v.getNetPrice() == null || v.getCompareAtPrice() == null || v.getCostPrice() == null
+                        || v.getVatPercent() == null || v.getStatus() == null)
+                .map(v -> v.getSku() + " | " + (v.getProduct() != null ? v.getProduct().getName() : "NO_PRODUCT"))
+                .collect(Collectors.toList());
+
+        List<String> stocksWithNull = stocks.stream()
+                .filter(s -> s.getWarehouse() == null || s.getVariant() == null || s.getAvailableQuantity() == null || s.getReservedQuantity() == null)
+                .map(s -> "stockId=" + s.getId())
+                .collect(Collectors.toList());
+
+        System.out.println(">> DATA QUALITY CHECK:");
+        System.out.println("   - products.count = " + products.size());
+        System.out.println("   - variants.count = " + variants.size());
+        System.out.println("   - inventory_stocks.count = " + stocks.size());
+        System.out.println("   - products_with_null = " + productsWithNull.size());
+        if (!productsWithNull.isEmpty()) {
+            System.out.println("   - products_with_null_list = " + productsWithNull);
+        }
+        System.out.println("   - variants_with_null = " + variantsWithNull.size());
+        if (!variantsWithNull.isEmpty()) {
+            System.out.println("   - variants_with_null_list = " + variantsWithNull);
+        }
+        System.out.println("   - stocks_with_null = " + stocksWithNull.size());
+        if (!stocksWithNull.isEmpty()) {
+            System.out.println("   - stocks_with_null_list = " + stocksWithNull);
+        }
+    }
+
+    private void addSeedGroup(
+            List<SeedProduct> catalog,
+            Category category,
+            String codePrefix,
+            String skuPrefix,
+            String unit,
+            String variantName,
+            int stock,
+            int basePrice,
+            String originCountry,
+            List<String> names
+    ) {
+        // Automatically mark Staple category as staples, or individual items like oil/salt
+        boolean isStapleCategory = category.getCategoryCode().equals("CAT_STAPLE");
+        
+        for (int i = 0; i < names.size(); i++) {
+            String name = names.get(i);
+            String code = codePrefix + "_" + String.format("%03d", i + 1);
+            String sku = skuPrefix + "_" + String.format("%03d", i + 1);
+            BigDecimal price = BigDecimal.valueOf(basePrice + ((i % 5) * 2500L));
+            String shortDesc = "Sản phẩm " + name + " chất lượng, nguồn gốc rõ ràng.";
+            String desc = shortDesc + " Phù hợp cho nhu cầu tiêu dùng hằng ngày tại SmartGrocery.";
+            String image = "/uploads/products/" + sku.toLowerCase() + ".jpg";
             
-            // Hàm helper để tạo lịch làm việc
-            java.util.function.BiConsumer<java.time.LocalDate, String> createShift = (date, type) -> {
-                if (shiftScheduleRepository.findByUser_IdAndWorkDate(finalStaff.getId(), date).isEmpty()) {
-                    ShiftSchedule.ShiftScheduleBuilder builder = ShiftSchedule.builder()
-                            .user(finalStaff)
-                            .workDate(date)
-                            .shiftType(type);
-                    if ("G".equals(type)) {
-                        if (date.equals(today)) {
-                            builder.selectedBlocks("1,4");
-                        } else if (date.equals(today.plusDays(3))) {
-                            builder.selectedBlocks("1,3");
-                        } else if (date.equals(dayMinus3)) {
-                            builder.selectedBlocks("2,4");
-                        } else {
-                            builder.selectedBlocks("1,4");
-                        }
-                    }
-                    shiftScheduleRepository.save(builder.build());
-                }
-            };
+            boolean itemIsStaple = isStapleCategory || 
+                                 name.contains("Gạo") || 
+                                 name.contains("Dầu ăn") || 
+                                 name.contains("Muối") || 
+                                 name.contains("Đường") || 
+                                 name.contains("Nước mắm") ||
+                                 name.contains("Bột ngọt");
+            
+            catalog.add(new SeedProduct(code, name, category, sku, variantName, unit, price, stock, shortDesc, desc, originCountry, image, itemIsStaple));
+        }
+    }
 
-            // Hàm helper để tạo record chấm công giả lập
-            java.util.function.Consumer<AttendanceRecord> createRecord = (record) -> {
-                if (attendanceRecordRepository.findByUser_IdAndWorkDateAndBlockNumber(
-                        record.getUser().getId(), record.getWorkDate(), record.getBlockNumber()).isEmpty()) {
-                    attendanceRecordRepository.save(record);
-                }
-            };
+    private void migrateSchema() {
+        try {
+            // Check if column exists, if not add it
+            jdbcTemplate.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS is_staple BOOLEAN DEFAULT FALSE");
+            System.out.println(">> Database Migration: Verified/Added is_staple column to products table.");
+        } catch (Exception e) {
+            System.err.println(">> Database Migration Notice: " + e.getMessage());
+        }
+    }
 
-            // 7.1 Lịch tương lai (SCHEDULED)
-            createShift.accept(today.plusDays(1), "S");
-            createShift.accept(today.plusDays(2), "C");
-            createShift.accept(today.plusDays(3), "G");
-            createShift.accept(today.plusDays(4), "OFF");
+    private void backfillNullsForAllExistingProducts(Category fallbackCategory) {
+        List<Product> allProducts = productRepository.findAll();
+        for (Product product : allProducts) {
+            boolean changed = false;
 
-            // 7.2 Lịch hôm nay (S) - Ca sáng theo yêu cầu người dùng
-            ShiftSchedule todayShift = shiftScheduleRepository.findByUser_IdAndWorkDate(finalStaff.getId(), today).orElse(null);
-            if (todayShift == null) {
-                shiftScheduleRepository.save(ShiftSchedule.builder()
-                        .user(finalStaff)
-                        .workDate(today)
-                        .shiftType("S")
-                        .build());
-            } else if (!"S".equals(todayShift.getShiftType())) {
-                todayShift.setShiftType("S");
-                todayShift.setSelectedBlocks(null); // Clear split blocks if any
-                shiftScheduleRepository.save(todayShift);
+            if (product.getProductCode() == null || product.getProductCode().isBlank()) {
+                String idPart = product.getId() != null ? String.valueOf(product.getId()) : String.valueOf(System.nanoTime());
+                product.setProductCode("P_AUTO_" + idPart);
+                changed = true;
+            }
+            if (product.getName() == null || product.getName().isBlank()) {
+                product.setName("Sản phẩm SmartGrocery");
+                changed = true;
+            }
+            if (product.getCategory() == null) {
+                product.setCategory(fallbackCategory);
+                changed = true;
+            }
+            if (product.getShortDescription() == null || product.getShortDescription().isBlank()) {
+                product.setShortDescription("Sản phẩm chất lượng, phù hợp nhu cầu tiêu dùng hằng ngày.");
+                changed = true;
+            }
+            if (product.getDescription() == null || product.getDescription().isBlank()) {
+                product.setDescription("Sản phẩm SmartGrocery đã được chuẩn hóa dữ liệu để đảm bảo đầy đủ thông tin.");
+                changed = true;
+            }
+            if (product.getOriginCountry() == null || product.getOriginCountry().isBlank()) {
+                product.setOriginCountry("Việt Nam");
+                changed = true;
+            }
+            if (product.getImage() == null || product.getImage().isBlank()) {
+                product.setImage("/uploads/products/default.jpg");
+                changed = true;
+            }
+            if (product.getStatus() == null || product.getStatus().isBlank()) {
+                product.setStatus("ACTIVE");
+                changed = true;
+            }
+            if (product.getIsFeatured() == null) {
+                product.setIsFeatured(false);
+                changed = true;
             }
 
-            // 7.3 Lịch quá khứ đa dạng
-            java.time.LocalDate dayMinus1 = today.minusDays(1);
-            java.time.LocalDate dayMinus2 = today.minusDays(2);
-            java.time.LocalDate dayMinus4 = today.minusDays(4);
-            java.time.LocalDate dayMinus5 = today.minusDays(5);
-
-            createShift.accept(dayMinus1, "S"); // Hôm qua: Đi đúng giờ, về đúng giờ (Xanh)
-            createShift.accept(dayMinus2, "C"); // Đi trễ (Cam)
-            createShift.accept(dayMinus3, "G"); // Ca Gãy: Thiếu 1 block (Cam)
-            createShift.accept(dayMinus4, "S"); // Vắng mặt (Đỏ - Có lịch nhưng ko checkin)
-            createShift.accept(dayMinus5, "OFF"); // Nghỉ (Trắng)
-
-            // Tạo các bản ghi chấm công (AttendanceRecord) cho các ngày quá khứ
-            // Day -1: Đúng giờ
-            createRecord.accept(AttendanceRecord.builder()
-                    .user(finalStaff).workDate(dayMinus1).shiftType("S").blockNumber(1)
-                    .checkInAt(dayMinus1.atTime(6, 25))
-                    .checkOutAt(dayMinus1.atTime(14, 35))
-                    .checkInStatus("ON_TIME").checkOutStatus("ON_TIME")
-                    .build());
-
-            // Day -2: LATE
-            createRecord.accept(AttendanceRecord.builder()
-                    .user(finalStaff).workDate(dayMinus2).shiftType("C").blockNumber(1)
-                    .checkInAt(dayMinus2.atTime(14, 50)) // Trễ so với 14:30
-                    .checkOutAt(dayMinus2.atTime(22, 35))
-                    .checkInStatus("LATE").checkOutStatus("ON_TIME")
-                    .build());
-
-            // Day -3: Ca Gãy, có block 1, ko có block 2 -> Incomplete -> Cam
-            createRecord.accept(AttendanceRecord.builder()
-                    .user(finalStaff).workDate(dayMinus3).shiftType("G").blockNumber(1)
-                    .checkInAt(dayMinus3.atTime(6, 20))
-                    .checkOutAt(dayMinus3.atTime(10, 30))
-                    .checkInStatus("ON_TIME").checkOutStatus("ON_TIME")
-                    .build());
-            // (Không tạo block 2)
-
-            // Day -4: Có lịch nhưng ko tạo AttendanceRecord -> ABSENT -> Đỏ
-
-            System.out.println(">> Seeded diverse ShiftSchedules and AttendanceRecords for P0 Staff!");
+            if (changed) {
+                productRepository.save(product);
+            }
         }
     }
 
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
-    private void seedFulfillmentOrdersIfNeeded(Long longNameVariantId) {
-        // Skip if we already have test orders
-        if (orderRepository.count() >= 2) {
-            return;
+    private void backfillNullsForAllExistingVariants() {
+        List<ProductVariant> allVariants = productVariantRepository.findAll();
+        Product fallbackProduct = productRepository.findAll().stream().findFirst().orElse(null);
+        for (ProductVariant variant : allVariants) {
+            boolean changed = false;
+
+            if (variant.getProduct() == null && fallbackProduct != null) {
+                variant.setProduct(fallbackProduct);
+                changed = true;
+            }
+            if (variant.getSku() == null || variant.getSku().isBlank()) {
+                String idPart = variant.getId() != null ? String.valueOf(variant.getId()) : String.valueOf(System.nanoTime());
+                variant.setSku("SKU_AUTO_" + idPart);
+                changed = true;
+            }
+            if (variant.getBarcode() == null || variant.getBarcode().isBlank()) {
+                variant.setBarcode("BAR_" + variant.getSku());
+                changed = true;
+            }
+            if (variant.getVariantName() == null || variant.getVariantName().isBlank()) {
+                variant.setVariantName("Quy cách tiêu chuẩn");
+                changed = true;
+            }
+            if (variant.getUnit() == null || variant.getUnit().isBlank()) {
+                variant.setUnit("UNIT");
+                changed = true;
+            }
+            if (variant.getPackageSize() == null || variant.getPackageSize().isBlank()) {
+                variant.setPackageSize(variant.getVariantName());
+                changed = true;
+            }
+            if (variant.getWeightGram() == null || variant.getWeightGram() <= 0) {
+                variant.setWeightGram(estimateWeightGram(variant.getVariantName()));
+                changed = true;
+            }
+            if (variant.getNetPrice() == null || variant.getNetPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                variant.setNetPrice(BigDecimal.valueOf(10000));
+                changed = true;
+            }
+            if (variant.getCompareAtPrice() == null || variant.getCompareAtPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                variant.setCompareAtPrice(variant.getNetPrice().multiply(BigDecimal.valueOf(1.1)));
+                changed = true;
+            }
+            if (variant.getCostPrice() == null || variant.getCostPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                variant.setCostPrice(variant.getNetPrice().multiply(BigDecimal.valueOf(0.78)));
+                changed = true;
+            }
+            if (variant.getVatPercent() == null) {
+                variant.setVatPercent(BigDecimal.valueOf(8));
+                changed = true;
+            }
+            if (variant.getStatus() == null || variant.getStatus().isBlank()) {
+                variant.setStatus("ACTIVE");
+                changed = true;
+            }
+
+            if (changed) {
+                productVariantRepository.save(variant);
+            }
         }
-
-        User customer = userRepository.findByEmail("customer.p0@smartgrocery.com").orElse(null);
-        if (customer == null) return;
-
-        Long addressId = userAddressRepository.findByUser_Id(customer.getId()).stream()
-                .findFirst()
-                .map(UserAddress::getId)
-                .orElse(null);
-
-        List<ProductVariant> baseVariants = List.of(
-                productVariantRepository.findBySku("SKU_B001").orElse(null),
-                productVariantRepository.findBySku("SKU_V002").orElse(null),
-                productVariantRepository.findBySku("SKU_V003").orElse(null),
-                productVariantRepository.findBySku("SKU_F001").orElse(null),
-                productVariantRepository.findBySku("SKU_F002").orElse(null),
-                productVariantRepository.findBySku("SKU_F003").orElse(null),
-                productVariantRepository.findBySku("SKU_D001").orElse(null),
-                productVariantRepository.findBySku("SKU_D002").orElse(null),
-                productVariantRepository.findBySku("SKU_M001").orElse(null),
-                productVariantRepository.findBySku("SKU_S001").orElse(null)
-        ).stream().filter(v -> v != null).toList();
-
-        if (baseVariants.size() < 3) return;
-
-        // Create only one simple test order to avoid inventory conflicts
-        createSeedOrder(customer, addressId, "COD", "SEED_UI_TEST_ORDER_1", List.of(
-                OrderItemRequest.builder().variantId(baseVariants.get(0).getId()).quantity(1).build(),
-                OrderItemRequest.builder().variantId(baseVariants.get(1).getId()).quantity(1).build()
-        ));
     }
 
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
-    private void createSeedOrder(User customer, Long addressId, String paymentMethod, String note, List<OrderItemRequest> items) {
-        try {
-            CreateOrderRequest req = new CreateOrderRequest();
-            req.setAddressId(addressId);
-            req.setPaymentMethod(paymentMethod);
-            req.setCustomerNote(note);
-            req.setItems(items);
-            orderService.createOrder(customer, req);
-        } catch (Exception e) {
-            System.err.println(">> Failed to create seed order [" + note + "]: " + e.getMessage());
+    private void ensureInventoryStocksForAllVariants(Warehouse mainWarehouse) {
+        List<ProductVariant> allVariants = productVariantRepository.findAll();
+        for (ProductVariant variant : allVariants) {
+            InventoryStock stock = inventoryStockRepository.findByWarehouseIdAndVariantId(mainWarehouse.getId(), variant.getId())
+                    .orElseGet(() -> InventoryStock.builder()
+                            .warehouse(mainWarehouse)
+                            .variant(variant)
+                            .availableQuantity(100)
+                            .reservedQuantity(0)
+                            .build());
+
+            boolean changed = false;
+            if (stock.getWarehouse() == null) {
+                stock.setWarehouse(mainWarehouse);
+                changed = true;
+            }
+            if (stock.getVariant() == null) {
+                stock.setVariant(variant);
+                changed = true;
+            }
+            if (stock.getAvailableQuantity() == null || stock.getAvailableQuantity() < 0) {
+                stock.setAvailableQuantity(100);
+                changed = true;
+            }
+            if (stock.getReservedQuantity() == null || stock.getReservedQuantity() < 0) {
+                stock.setReservedQuantity(0);
+                changed = true;
+            }
+
+            if (stock.getId() == null || changed) {
+                inventoryStockRepository.save(stock);
+            }
         }
+    }
+
+    private int estimateWeightGram(String variantName) {
+        if (variantName == null) return 500;
+        String n = variantName.toLowerCase();
+        if (n.contains("1kg")) return 1000;
+        if (n.contains("750ml")) return 750;
+        if (n.contains("500g")) return 500;
+        if (n.contains("330ml")) return 330;
+        if (n.contains("250g")) return 250;
+        if (n.contains("200g")) return 200;
+        return 500;
     }
 }

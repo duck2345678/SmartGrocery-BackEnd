@@ -17,6 +17,7 @@ public class OrderDto {
     private Long id;
     private Long userId;
     private Long addressId;
+    private String addressLine;
     private String orderNumber;
     private BigDecimal subtotal;
     private BigDecimal discountAmount;

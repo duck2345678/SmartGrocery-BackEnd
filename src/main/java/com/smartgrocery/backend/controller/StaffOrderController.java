@@ -53,6 +53,13 @@ public class StaffOrderController {
         return ResponseEntity.of(staffOrderFlowService.getMyActiveOrder(user));
     }
 
+    @Operation(summary = "Tự động nhận đơn cũ nhất trong hàng chờ")
+    @PostMapping("/auto-assign")
+    public ResponseEntity<StaffOrderDto> autoAssign(@AuthenticationPrincipal User user) {
+        assertStaffRole();
+        return ResponseEntity.ok(staffOrderFlowService.autoAssignOrder(user));
+    }
+
     @Operation(summary = "Nhận đơn (assign lease 10 phút)")
     @PostMapping("/{orderId}/assign")
     public ResponseEntity<AssignOrderResponse> assign(

@@ -2,7 +2,7 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.InventoryStockDto;
 import com.smartgrocery.backend.entity.InventoryStock;
-import com.smartgrocery.backend.repository.InventoryStockRepository;
+import com.smartgrocery.backend.repository.jpa.InventoryStockRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

@@ -3,7 +3,7 @@ package com.smartgrocery.backend.service;
 import com.smartgrocery.backend.dto.PurchaseOrderDto;
 import com.smartgrocery.backend.dto.PurchaseOrderItemDto;
 import com.smartgrocery.backend.entity.*;
-import com.smartgrocery.backend.repository.*;
+import com.smartgrocery.backend.repository.jpa.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,8 +23,6 @@ public class PurchaseOrderService {
     @Autowired
     private PurchaseOrderItemRepository purchaseOrderItemRepository;
 
-    @Autowired
-    private SupplierRepository supplierRepository;
 
     @Autowired
     private WarehouseRepository warehouseRepository;
@@ -42,11 +40,7 @@ public class PurchaseOrderService {
     }
 
     public PurchaseOrderDto createOrder(PurchaseOrderDto dto) {
-        Supplier supplier = supplierRepository.findById(dto.getSupplierId())
-                .orElseThrow(() -> new RuntimeException("Supplier not found"));
-
         PurchaseOrder po = PurchaseOrder.builder()
-                .supplier(supplier)
                 .poNumber("PO-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
                 .status("DRAFT")
                 .totalAmount(BigDecimal.ZERO)
@@ -114,8 +108,6 @@ public class PurchaseOrderService {
         List<PurchaseOrderItem> items = purchaseOrderItemRepository.findByPurchaseOrderId(po.getId());
         return PurchaseOrderDto.builder()
                 .id(po.getId())
-                .supplierId(po.getSupplier().getId())
-                .supplierName(po.getSupplier().getName())
                 .poNumber(po.getPoNumber())
                 .status(po.getStatus())
                 .totalAmount(po.getTotalAmount())

@@ -12,15 +12,19 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 public class StaffPickItemDto {
+    private Long id;
     private Long orderItemId;
     private Long variantId;
     private String sku;
     private String barcode;
+    private String name;
     private String productName;
     private String variantName;
-    private String aisleLocation;
+    private Integer quantity;
     private Integer orderedQuantity;
     private Integer pickedQuantity;
+    private BigDecimal price;
     private BigDecimal unitPrice;
     private String imageUrl;
+    private Integer stockQuantity;
 }

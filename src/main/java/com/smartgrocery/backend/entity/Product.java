@@ -57,6 +57,10 @@ public class Product {
     @Builder.Default
     private Boolean isFeatured = false;
 
+    @Column(name = "is_staple", nullable = false)
+    @Builder.Default
+    private Boolean isStaple = false;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

@@ -1,7 +1,7 @@
 package com.smartgrocery.backend.service;
 
-import com.smartgrocery.backend.repository.AttendanceRecordRepository;
-import com.smartgrocery.backend.repository.UserRepository;
+import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
+import com.smartgrocery.backend.repository.jpa.UserRepository;
 import com.smartgrocery.backend.scheduler.AttendanceScheduler;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

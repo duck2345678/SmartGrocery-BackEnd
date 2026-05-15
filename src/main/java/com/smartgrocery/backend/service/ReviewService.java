@@ -2,7 +2,7 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.ProductReviewDto;
 import com.smartgrocery.backend.entity.ProductReview;
-import com.smartgrocery.backend.repository.ProductReviewRepository;
+import com.smartgrocery.backend.repository.jpa.ProductReviewRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

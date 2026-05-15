@@ -3,9 +3,9 @@ package com.smartgrocery.backend.service;
 import com.smartgrocery.backend.entity.AttendanceRecord;
 import com.smartgrocery.backend.entity.ShiftSchedule;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.repository.AttendanceRecordRepository;
-import com.smartgrocery.backend.repository.ShiftRequestRepository;
-import com.smartgrocery.backend.repository.ShiftScheduleRepository;
+import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
+import com.smartgrocery.backend.repository.jpa.ShiftRequestRepository;
+import com.smartgrocery.backend.repository.jpa.ShiftScheduleRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class AttendanceStatisticsServiceTest {
@@ -49,9 +49,9 @@ class AttendanceStatisticsServiceTest {
                 .checkOutStatus("ON_TIME")
                 .build();
 
-        when(shiftScheduleRepository.findByUser_IdAndWorkDateBetween(1L, start, start.withDayOfMonth(31))).thenReturn(List.of(schedule));
-        when(attendanceRecordRepository.findByUser_IdAndWorkDateBetween(1L, start, start.withDayOfMonth(31))).thenReturn(List.of(rec));
-        when(shiftRequestRepository.findByUser_IdAndWorkDateBetween(1L, start, start.withDayOfMonth(31))).thenReturn(List.of());
+        lenient().when(shiftScheduleRepository.findByUser_IdAndWorkDateBetween(1L, start, start.withDayOfMonth(31))).thenReturn(List.of(schedule));
+        lenient().when(attendanceRecordRepository.findByUser_IdAndWorkDateBetween(1L, start, start.withDayOfMonth(31))).thenReturn(List.of(rec));
+        lenient().when(shiftRequestRepository.findByUser_IdAndWorkDateBetween(1L, start, start.withDayOfMonth(31))).thenReturn(List.of());
 
         var dto = service.getMonthlyStats(user, 2026, 5);
         assertEquals(1, dto.getScheduledDays());
@@ -64,9 +64,9 @@ class AttendanceStatisticsServiceTest {
     void monthlyStatsHandlesNoScheduleMonth() {
         User user = User.builder().id(2L).build();
         LocalDate start = LocalDate.of(2026, 5, 1);
-        when(shiftScheduleRepository.findByUser_IdAndWorkDateBetween(2L, start, start.withDayOfMonth(31))).thenReturn(List.of());
-        when(attendanceRecordRepository.findByUser_IdAndWorkDateBetween(2L, start, start.withDayOfMonth(31))).thenReturn(List.of());
-        when(shiftRequestRepository.findByUser_IdAndWorkDateBetween(2L, start, start.withDayOfMonth(31))).thenReturn(List.of());
+        lenient().when(shiftScheduleRepository.findByUser_IdAndWorkDateBetween(2L, start, start.withDayOfMonth(31))).thenReturn(List.of());
+        lenient().when(attendanceRecordRepository.findByUser_IdAndWorkDateBetween(2L, start, start.withDayOfMonth(31))).thenReturn(List.of());
+        lenient().when(shiftRequestRepository.findByUser_IdAndWorkDateBetween(2L, start, start.withDayOfMonth(31))).thenReturn(List.of());
 
         var dto = service.getMonthlyStats(user, 2026, 5);
         assertEquals(0, dto.getScheduledDays());

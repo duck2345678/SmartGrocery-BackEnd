@@ -3,7 +3,7 @@ package com.smartgrocery.backend.service;
 import com.smartgrocery.backend.dto.AdminOpsMonitorDto;
 import com.smartgrocery.backend.dto.AdminOpsOrderDto;
 import com.smartgrocery.backend.entity.Order;
-import com.smartgrocery.backend.repository.OrderRepository;
+import com.smartgrocery.backend.repository.jpa.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

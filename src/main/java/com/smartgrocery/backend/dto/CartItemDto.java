@@ -21,6 +21,7 @@ public class CartItemDto {
     private String productName;
     private String sku;
     private BigDecimal unitPrice;
+    private BigDecimal compareAtPrice;
     private Integer quantity;
     private BigDecimal subtotal;
     private String imageUrl;

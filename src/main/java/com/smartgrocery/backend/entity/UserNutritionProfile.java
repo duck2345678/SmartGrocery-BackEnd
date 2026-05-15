@@ -49,6 +49,14 @@ public class UserNutritionProfile {
     @Column(name = "daily_calorie_target")
     private Integer dailyCalorieTarget;
 
+    @Column(name = "ai_interaction_points", nullable = false)
+    @Builder.Default
+    private Integer aiInteractionPoints = 0;
+
+    @Column(name = "received_first_order_reward", nullable = false)
+    @Builder.Default
+    private Boolean receivedFirstOrderReward = false;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

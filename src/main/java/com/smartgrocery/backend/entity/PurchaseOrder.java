@@ -10,7 +10,6 @@ import java.time.LocalDateTime;
 public class PurchaseOrder {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    @ManyToOne @JoinColumn(name="supplier_id") private Supplier supplier;
     private String poNumber;
     private BigDecimal totalAmount;
     private String status;

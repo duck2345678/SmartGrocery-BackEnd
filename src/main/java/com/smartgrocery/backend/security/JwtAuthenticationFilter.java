@@ -1,7 +1,7 @@
 package com.smartgrocery.backend.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.smartgrocery.backend.repository.UserSessionRepository;
+import com.smartgrocery.backend.repository.jpa.UserSessionRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

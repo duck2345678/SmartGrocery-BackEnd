@@ -16,10 +16,11 @@ public class ProductVariantDto {
     private String sku;
     private String barcode;
     private String variantName;
+    private String color;
+    private String size;
     private String unit;
     private String packageSize;
     private Integer weightGram;
-    private String aisleLocation;
     private BigDecimal netPrice;
     private BigDecimal compareAtPrice;
     private BigDecimal vatPercent;

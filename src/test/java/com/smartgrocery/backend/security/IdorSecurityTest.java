@@ -1,6 +1,6 @@
 package com.smartgrocery.backend.security;
 
-import com.smartgrocery.backend.repository.UserRepository;
+import com.smartgrocery.backend.repository.jpa.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;

@@ -1,7 +1,7 @@
 package com.smartgrocery.backend.controller;
 
 import com.smartgrocery.backend.entity.Category;
-import com.smartgrocery.backend.repository.CategoryRepository;
+import com.smartgrocery.backend.repository.jpa.CategoryRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -16,12 +16,12 @@ import com.smartgrocery.backend.entity.ProductVariant;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.entity.Warehouse;
 import com.smartgrocery.backend.exception.OrderAssignmentConflictException;
-import com.smartgrocery.backend.repository.AttendanceRecordRepository;
-import com.smartgrocery.backend.repository.InventoryStockRepository;
-import com.smartgrocery.backend.repository.OrderItemRepository;
-import com.smartgrocery.backend.repository.OrderRepository;
-import com.smartgrocery.backend.repository.ProductVariantRepository;
-import com.smartgrocery.backend.repository.WarehouseRepository;
+import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
+import com.smartgrocery.backend.repository.jpa.InventoryStockRepository;
+import com.smartgrocery.backend.repository.jpa.OrderItemRepository;
+import com.smartgrocery.backend.repository.jpa.OrderRepository;
+import com.smartgrocery.backend.repository.jpa.ProductVariantRepository;
+import com.smartgrocery.backend.repository.jpa.WarehouseRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -85,8 +85,19 @@ public class StaffOrderFlowService {
         if (!activeOrders.isEmpty()) {
             return List.of();
         }
-        return orderRepository.findPersonalQueueForAssignment(staffUser.getId(), "QUEUED").stream()
-                .limit(1)
+
+        // 1. Try personal queue first (assigned but not yet picked)
+        List<Order> personalQueue = orderRepository.findPersonalQueueForAssignment(staffUser.getId(), "QUEUED");
+        if (!personalQueue.isEmpty()) {
+            return personalQueue.stream()
+                    .limit(1)
+                    .map(this::toStaffOrderDto)
+                    .collect(Collectors.toList());
+        }
+
+        // 2. Fallback to general queue (unassigned pending orders)
+        return orderRepository.findQueueForAssignment(STATUS_PENDING, now).stream()
+                .limit(5)
                 .map(this::toStaffOrderDto)
                 .collect(Collectors.toList());
     }
@@ -101,6 +112,37 @@ public class StaffOrderFlowService {
                 ).stream()
                 .findFirst()
                 .map(this::toStaffOrderDto);
+    }
+
+    @Transactional(value = "transactionManager")
+    public StaffOrderDto autoAssignOrder(User staffUser) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        
+        // 1. Check if already has active order
+        Optional<StaffOrderDto> active = getMyActiveOrder(staffUser);
+        if (active.isPresent()) {
+            return active.get();
+        }
+
+        // 2. Ensure staff is in shift
+        ensureStaffInShift(staffUser);
+
+        // 3. Find oldest pending order
+        List<Order> queue = orderRepository.findQueueForAssignment(STATUS_PENDING, now);
+        if (queue.isEmpty()) {
+            throw new RuntimeException("Hiện tại không có đơn hàng nào trong hàng chờ.");
+        }
+
+        Order oldest = queue.get(0);
+        
+        // 4. Assign it
+        LocalDateTime leaseExpiresAt = now.plusMinutes(LEASE_MINUTES);
+        oldest.setAssignee(staffUser);
+        oldest.setLeaseExpiresAt(leaseExpiresAt);
+        oldest.setStatus(STATUS_ASSIGNED);
+        
+        Order saved = orderRepository.save(oldest);
+        return toStaffOrderDto(saved);
     }
 
     @Transactional(value = "transactionManager")
@@ -125,8 +167,19 @@ public class StaffOrderFlowService {
                 now
         );
         if (updated == 0) {
+            updated = orderRepository.assignIfAvailable(
+                    orderId,
+                    staffUser.getId(),
+                    leaseExpiresAt,
+                    STATUS_ASSIGNED,
+                    STATUS_PENDING,
+                    now
+            );
+        }
+        if (updated == 0) {
             throw new OrderAssignmentConflictException("Order is not in your queue or no longer available");
         }
+        orderRepository.touchAssignedAt(orderId, now);
         return AssignOrderResponse.builder()
                 .orderId(orderId)
                 .assigneeId(staffUser.getId())
@@ -182,9 +235,20 @@ public class StaffOrderFlowService {
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public StaffPickOrderDto getPickList(Long orderId, User staffUser) {
         Order order = orderRepository.findById(orderId).orElseThrow(() -> new RuntimeException("Order not found"));
-                ensureStaffInShift(staffUser);
+        
+        // Chỉ yêu cầu ca làm việc nếu đơn hàng đang trong quá trình xử lý (chưa nhặt xong)
+        if (!POST_PICKING_STATUSES.contains(order.getStatus())) {
+            ensureStaffInShift(staffUser);
+        }
+        
         ensureValidLeaseOwner(order, staffUser);
-        List<OrderItem> items = orderItemRepository.findByOrder_IdOrderByVariant_AisleLocationAsc(orderId);
+        List<OrderItem> items = orderItemRepository.findByOrder_IdWithDetails(orderId);
+        
+        List<StaffPickItemDto> itemDtos = items.stream()
+                .map(this::toPickItemDto)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
         String addressLine = order.getAddress() != null
                 ? order.getAddress().getStreetAddress() + ", " + order.getAddress().getWard() + ", " + order.getAddress().getDistrict()
                 : null;
@@ -196,11 +260,11 @@ public class StaffOrderFlowService {
                 .leaseExpiresAt(order.getLeaseExpiresAt())
                 .packingPhotoUrl(order.getPackingPhotoUrl())
                 .deliveryPhotoUrl(order.getDeliveryPhotoUrl())
-                .items(items.stream().map(this::toPickItemDto).collect(Collectors.toList()))
-                .customerName(order.getUser() != null ? order.getUser().getFullName() : null)
-                .customerPhone(order.getUser() != null ? order.getUser().getPhone() : null)
-                .customerEmail(order.getUser() != null ? order.getUser().getEmail() : null)
-                .addressLine(addressLine)
+                .items(itemDtos)
+                .customerName(order.getUser() != null ? order.getUser().getFullName() : "N/A")
+                .customerPhone(order.getUser() != null ? order.getUser().getPhone() : "N/A")
+                .customerEmail(order.getUser() != null ? order.getUser().getEmail() : "N/A")
+                .addressLine(addressLine != null ? addressLine : "N/A")
                 .paymentMethod(order.getPaymentMethod())
                 .subtotal(order.getSubtotal())
                 .totalAmount(order.getTotalAmount())
@@ -413,7 +477,7 @@ public class StaffOrderFlowService {
 
     /* Post-picking states: lease is no longer relevant once picking is done */
     private static final Set<String> POST_PICKING_STATUSES = Set.of(
-            STATUS_PICKED, STATUS_READY_TO_SHIP, STATUS_DELIVERING, "DELIVERED"
+            STATUS_PICKED, STATUS_READY_TO_SHIP, STATUS_DELIVERING, "DELIVERED", "COMPLETED", "CANCELLED"
     );
 
     private void ensureValidLeaseOwner(Order order, User staffUser) {
@@ -447,18 +511,37 @@ public class StaffOrderFlowService {
         }
 
     private StaffPickItemDto toPickItemDto(OrderItem item) {
+        if (item == null) return null;
+        
+        Long variantId = null;
+        String img = null;
+        Integer stock = 0;
+        
+        if (item.getVariant() != null) {
+            variantId = item.getVariant().getId();
+            if (item.getVariant().getProduct() != null) {
+                img = item.getVariant().getProduct().getImage();
+            }
+            Long s = inventoryStockRepository.sumAvailableByVariantId(variantId);
+            stock = s != null ? s.intValue() : 0;
+        }
+
         return StaffPickItemDto.builder()
+                .id(item.getId())
                 .orderItemId(item.getId())
-                .variantId(item.getVariant().getId())
-                .sku(item.getSku())
-                .barcode(item.getVariant() != null ? item.getVariant().getBarcode() : null)
-                .productName(item.getProductName())
-                .variantName(item.getVariantName())
-                .aisleLocation(item.getVariant().getAisleLocation())
-                .orderedQuantity(item.getQuantity())
-                .pickedQuantity(item.getPickedQuantity())
-                .unitPrice(item.getUnitPrice())
-                .imageUrl(item.getVariant() != null && item.getVariant().getProduct() != null ? item.getVariant().getProduct().getImage() : null)
+                .variantId(variantId)
+                .sku(item.getSku() != null ? item.getSku() : "NO-SKU")
+                .barcode(item.getVariant() != null && item.getVariant().getBarcode() != null ? item.getVariant().getBarcode() : "N/A")
+                .name(item.getProductName() != null ? item.getProductName() : "Sản phẩm không xác định")
+                .productName(item.getProductName() != null ? item.getProductName() : "Sản phẩm không xác định")
+                .variantName(item.getVariantName() != null ? item.getVariantName() : "Mặc định")
+                .quantity(item.getQuantity() != null ? item.getQuantity() : 0)
+                .orderedQuantity(item.getQuantity() != null ? item.getQuantity() : 0)
+                .pickedQuantity(item.getPickedQuantity() != null ? item.getPickedQuantity() : 0)
+                .price(item.getUnitPrice() != null ? item.getUnitPrice() : java.math.BigDecimal.ZERO)
+                .unitPrice(item.getUnitPrice() != null ? item.getUnitPrice() : java.math.BigDecimal.ZERO)
+                .imageUrl(img)
+                .stockQuantity(stock)
                 .build();
     }
 

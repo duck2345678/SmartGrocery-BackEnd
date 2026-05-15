@@ -2,7 +2,7 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.AdminCategoryUpsertRequest;
 import com.smartgrocery.backend.entity.Category;
-import com.smartgrocery.backend.repository.CategoryRepository;
+import com.smartgrocery.backend.repository.jpa.CategoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

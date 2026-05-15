@@ -4,16 +4,18 @@ import com.smartgrocery.backend.dto.AssignOrderResponse;
 import com.smartgrocery.backend.dto.CompletePickingRequest;
 import com.smartgrocery.backend.dto.StaffPerformanceDailyDto;
 import com.smartgrocery.backend.dto.StaffPerformanceSummaryDto;
+import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
+import com.smartgrocery.backend.repository.jpa.InventoryStockRepository;
+import com.smartgrocery.backend.repository.jpa.OrderItemRepository;
+import com.smartgrocery.backend.repository.jpa.OrderRepository;
+import com.smartgrocery.backend.repository.jpa.ProductVariantRepository;
+import com.smartgrocery.backend.repository.jpa.WarehouseRepository;
+import com.smartgrocery.backend.entity.AttendanceRecord;
 import com.smartgrocery.backend.entity.Order;
 import com.smartgrocery.backend.entity.OrderItem;
 import com.smartgrocery.backend.entity.ProductVariant;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.exception.OrderAssignmentConflictException;
-import com.smartgrocery.backend.repository.InventoryStockRepository;
-import com.smartgrocery.backend.repository.OrderItemRepository;
-import com.smartgrocery.backend.repository.OrderRepository;
-import com.smartgrocery.backend.repository.ProductVariantRepository;
-import com.smartgrocery.backend.repository.WarehouseRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -46,6 +48,8 @@ public class StaffOrderFlowServiceTest {
     private InventoryStockRepository inventoryStockRepository;
     @Mock
     private WarehouseRepository warehouseRepository;
+    @Mock
+    private AttendanceRecordRepository attendanceRecordRepository;
 
     private StaffOrderFlowService newService() {
         StaffOrderFlowService s = new StaffOrderFlowService();
@@ -54,6 +58,7 @@ public class StaffOrderFlowServiceTest {
         ReflectionTestUtils.setField(s, "productVariantRepository", productVariantRepository);
         ReflectionTestUtils.setField(s, "inventoryStockRepository", inventoryStockRepository);
         ReflectionTestUtils.setField(s, "warehouseRepository", warehouseRepository);
+        ReflectionTestUtils.setField(s, "attendanceRecordRepository", attendanceRecordRepository);
         ReflectionTestUtils.setField(s, "clock", Clock.fixed(Instant.parse("2026-04-19T10:00:00Z"), ZoneId.of("Asia/Ho_Chi_Minh")));
         return s;
     }
@@ -65,6 +70,8 @@ public class StaffOrderFlowServiceTest {
 
         when(orderRepository.assignIfAvailable(anyLong(), anyLong(), any(), anyString(), anyString(), any()))
                 .thenReturn(0);
+        when(attendanceRecordRepository.findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(anyLong(), any(LocalDate.class)))
+                .thenReturn(Optional.of(AttendanceRecord.builder().build()));
 
         assertThrows(OrderAssignmentConflictException.class, () -> service.assignOrder(100L, staff));
     }
@@ -76,6 +83,8 @@ public class StaffOrderFlowServiceTest {
 
         when(orderRepository.assignIfAvailable(eq(100L), eq(5L), any(), eq("ASSIGNED"), eq("PENDING"), any()))
                 .thenReturn(1);
+        when(attendanceRecordRepository.findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(anyLong(), any(LocalDate.class)))
+                .thenReturn(Optional.of(AttendanceRecord.builder().build()));
 
         AssignOrderResponse res = service.assignOrder(100L, staff);
         assertEquals(100L, res.getOrderId());
@@ -91,9 +100,11 @@ public class StaffOrderFlowServiceTest {
 
         when(orderRepository.heartbeatLease(anyLong(), anyLong(), any(), anyList(), any()))
                 .thenReturn(0);
+        when(attendanceRecordRepository.findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(anyLong(), any(LocalDate.class)))
+                .thenReturn(Optional.of(AttendanceRecord.builder().build()));
 
         RuntimeException ex = assertThrows(RuntimeException.class, () -> service.heartbeat(99L, staff));
-        assertTrue(ex.getMessage().toLowerCase().contains("unauthorized"));
+        assertTrue(ex.getMessage().toLowerCase().contains("không thể gia hạn"));
     }
 
     @Test
@@ -104,6 +115,8 @@ public class StaffOrderFlowServiceTest {
         when(orderRepository.heartbeatLease(anyLong(), anyLong(), any(), anyList(), any()))
                 .thenReturn(1);
         when(orderRepository.findById(99L)).thenReturn(Optional.of(Order.builder().id(99L).status("ASSIGNED").build()));
+        when(attendanceRecordRepository.findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(anyLong(), any(LocalDate.class)))
+                .thenReturn(Optional.of(AttendanceRecord.builder().build()));
 
         AssignOrderResponse res = service.heartbeat(99L, staff);
         assertEquals(99L, res.getOrderId());
@@ -118,6 +131,8 @@ public class StaffOrderFlowServiceTest {
 
         when(orderRepository.releaseAssignment(eq(99L), eq(7L), eq("PENDING"), anyList()))
                 .thenReturn(1);
+        when(attendanceRecordRepository.findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(anyLong(), any(LocalDate.class)))
+                .thenReturn(Optional.of(AttendanceRecord.builder().build()));
 
         AssignOrderResponse res = service.release(99L, staff);
         assertEquals("PENDING", res.getStatus());
@@ -157,6 +172,9 @@ public class StaffOrderFlowServiceTest {
 
         when(orderRepository.findById(99L)).thenReturn(Optional.of(order));
         when(orderItemRepository.findByOrder_Id(99L)).thenReturn(List.of(oi));
+        when(attendanceRecordRepository.findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(anyLong(), any(LocalDate.class)))
+                .thenReturn(Optional.of(AttendanceRecord.builder().build()));
+        when(warehouseRepository.findAll()).thenReturn(List.of(com.smartgrocery.backend.entity.Warehouse.builder().id(1L).build()));
 
         CompletePickingRequest req = CompletePickingRequest.builder()
                 .pickedItems(List.of(CompletePickingRequest.PickedItem.builder()
@@ -179,8 +197,8 @@ public class StaffOrderFlowServiceTest {
         LocalDate date = LocalDate.of(2026, 4, 18);
 
         List<Order> orders = List.of(
-                Order.builder().id(1L).orderNumber("SG-001").status("PICKED").pickedAt(LocalDateTime.of(2026, 4, 18, 9, 0)).build(),
-                Order.builder().id(2L).orderNumber("SG-002").status("PICKED").pickedAt(LocalDateTime.of(2026, 4, 18, 12, 30)).build()
+                Order.builder().id(1L).orderNumber("SG-001").status("DELIVERED").pickedAt(LocalDateTime.of(2026, 4, 18, 9, 0)).build(),
+                Order.builder().id(2L).orderNumber("SG-002").status("DELIVERED").pickedAt(LocalDateTime.of(2026, 4, 18, 12, 30)).build()
         );
 
         when(orderRepository.countCompletedOrdersByStaffAndPickedAtRange(anyLong(), anyList(), any(), any())).thenReturn(2L);
@@ -193,7 +211,7 @@ public class StaffOrderFlowServiceTest {
 
         ArgumentCaptor<LocalDateTime> fromCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
         ArgumentCaptor<LocalDateTime> toCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
-        verify(orderRepository).countCompletedOrdersByStaffAndPickedAtRange(eq(5L), eq(List.of("PICKED")), fromCaptor.capture(), toCaptor.capture());
+        verify(orderRepository).countCompletedOrdersByStaffAndPickedAtRange(eq(5L), eq(List.of("DELIVERED")), fromCaptor.capture(), toCaptor.capture());
         assertEquals(LocalDateTime.of(2026, 4, 18, 0, 0), fromCaptor.getValue());
         assertEquals(LocalDateTime.of(2026, 4, 19, 0, 0), toCaptor.getValue());
     }

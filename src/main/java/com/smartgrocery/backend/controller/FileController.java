@@ -1,7 +1,7 @@
 package com.smartgrocery.backend.controller;
 
 import com.smartgrocery.backend.security.SecurityUtils;
-import com.smartgrocery.backend.service.StaffUploadStorageService;
+import com.smartgrocery.backend.service.SupabaseStorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class FileController {
 
-    private final StaffUploadStorageService storageService;
+    private final SupabaseStorageService storageService;
 
     @Operation(summary = "Upload file (multipart) and return public URL")
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -28,7 +28,7 @@ public class FileController {
         if (!SecurityUtils.hasAnyRole("STAFF", "ADMIN")) {
             throw new AccessDeniedException("Access denied");
         }
-        String url = storageService.store(file);
+        String url = storageService.upload(file, "staff");
         return ResponseEntity.ok(Map.of("url", url));
     }
 }

@@ -83,6 +83,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiResponse<Void>> handleRuntimeException(RuntimeException ex) {
+        log.error("Runtime exception", ex);
         String message = ex.getMessage() != null ? ex.getMessage() : "Unexpected error";
 
         HttpStatus status;

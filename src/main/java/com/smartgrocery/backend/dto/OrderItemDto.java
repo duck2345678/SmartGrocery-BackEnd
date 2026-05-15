@@ -26,4 +26,5 @@ public class OrderItemDto {
     private Boolean isSubstituted;
     private Long substitutedVariantId;
     private String substitutionReason;
+    private String imageUrl;
 }

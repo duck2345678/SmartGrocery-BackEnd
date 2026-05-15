@@ -2,7 +2,7 @@ package com.smartgrocery.backend.security;
 
 import com.smartgrocery.backend.entity.Role;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.repository.UserSessionRepository;
+import com.smartgrocery.backend.repository.jpa.UserSessionRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -15,6 +15,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -42,6 +44,7 @@ class JwtAuthenticationFilterTest {
     void whenDeviceFingerprintMissing_thenReturnsUnauthorizedWithoutContinuing() throws Exception {
         when(request.getHeader("Authorization")).thenReturn("Bearer abc");
         when(request.getHeader("X-Device-Fingerprint")).thenReturn(" ");
+        when(response.getWriter()).thenReturn(new PrintWriter(new StringWriter()));
 
         filter.doFilterInternal(request, response, filterChain);
 
@@ -62,6 +65,7 @@ class JwtAuthenticationFilterTest {
         when(jwtService.isTokenValid("abc", userDetails)).thenReturn(true);
         when(userSessionRepository.findByUser_IdAndDeviceFingerprintAndRevokedFalseAndExpiresAtAfter(eq(5L), eq("device-b"), any(LocalDateTime.class)))
                 .thenReturn(Optional.empty());
+        when(response.getWriter()).thenReturn(new PrintWriter(new StringWriter()));
 
         filter.doFilterInternal(request, response, filterChain);
 

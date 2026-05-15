@@ -5,14 +5,16 @@ import com.smartgrocery.backend.dto.ShiftRequestCreateRequest;
 import com.smartgrocery.backend.entity.ShiftRequest;
 import com.smartgrocery.backend.entity.ShiftSchedule;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.repository.ShiftRequestRepository;
-import com.smartgrocery.backend.repository.ShiftScheduleRepository;
+import com.smartgrocery.backend.repository.jpa.ShiftRequestRepository;
+import com.smartgrocery.backend.repository.jpa.ShiftScheduleRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.junit.jupiter.api.BeforeEach;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -28,8 +30,15 @@ class ShiftRequestServiceTest {
 
     @Mock private ShiftRequestRepository shiftRequestRepository;
     @Mock private ShiftScheduleRepository shiftScheduleRepository;
+    @Mock private NotificationService notificationService;
 
     @InjectMocks private ShiftRequestService service;
+
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(service, "minDaysAhead", 1);
+        ReflectionTestUtils.setField(service, "maxDaysAhead", 14);
+    }
 
     private User user() {
         return User.builder().id(10L).fullName("Staff A").build();
@@ -38,7 +47,7 @@ class ShiftRequestServiceTest {
     @Test
     void createRejectsAdjacentGBlocks() {
         ShiftRequestCreateRequest req = ShiftRequestCreateRequest.builder()
-                .workDate(LocalDate.now().plusDays(2))
+                .workDate(LocalDate.now().plusDays(3))
                 .shiftType("G")
                 .selectedBlocks(List.of(1, 2))
                 .build();
@@ -49,7 +58,7 @@ class ShiftRequestServiceTest {
     @Test
     void createSavesSelectedBlocksForValidGShift() {
         ShiftRequestCreateRequest req = ShiftRequestCreateRequest.builder()
-                .workDate(LocalDate.now().plusDays(2))
+                .workDate(LocalDate.now().plusDays(3))
                 .shiftType("G")
                 .selectedBlocks(List.of(1, 4))
                 .build();
@@ -67,7 +76,7 @@ class ShiftRequestServiceTest {
 
     @Test
     void adminApproveCopiesSelectedBlocksToSchedule() {
-        LocalDate workDate = LocalDate.now().plusDays(2);
+        LocalDate workDate = LocalDate.now().plusDays(3);
         ShiftRequest sr = ShiftRequest.builder()
                 .id(1L)
                 .user(user())
@@ -88,7 +97,7 @@ class ShiftRequestServiceTest {
 
     @Test
     void adminApproveRejectsGShiftWithoutBlocks() {
-        LocalDate workDate = LocalDate.now().plusDays(2);
+        LocalDate workDate = LocalDate.now().plusDays(3);
         ShiftRequest sr = ShiftRequest.builder()
                 .id(1L)
                 .user(user())

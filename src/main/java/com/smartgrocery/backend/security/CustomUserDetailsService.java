@@ -1,6 +1,6 @@
 package com.smartgrocery.backend.security;
 
-import com.smartgrocery.backend.repository.UserRepository;
+import com.smartgrocery.backend.repository.jpa.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;

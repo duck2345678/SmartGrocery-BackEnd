@@ -4,10 +4,11 @@ import com.smartgrocery.backend.dto.AttendanceCheckRequest;
 import com.smartgrocery.backend.entity.AttendanceRecord;
 import com.smartgrocery.backend.entity.ShiftSchedule;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.repository.AttendanceRecordRepository;
-import com.smartgrocery.backend.repository.ShiftRequestRepository;
-import com.smartgrocery.backend.repository.ShiftScheduleRepository;
+import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
+import com.smartgrocery.backend.repository.jpa.ShiftRequestRepository;
+import com.smartgrocery.backend.repository.jpa.ShiftScheduleRepository;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -27,8 +28,15 @@ class AttendanceServiceTest {
     @Mock private AttendanceRecordRepository attendanceRecordRepository;
     @Mock private ShiftScheduleRepository shiftScheduleRepository;
     @Mock private ShiftRequestRepository shiftRequestRepository;
+    @Mock private ApplicationEventPublisher applicationEventPublisher;
 
     @InjectMocks private AttendanceService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "lateThresholdMinutes", 10);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "earlyBufferMinutes", 15);
+    }
 
     private User user() {
         return User.builder().id(10L).fullName("Staff A").build();

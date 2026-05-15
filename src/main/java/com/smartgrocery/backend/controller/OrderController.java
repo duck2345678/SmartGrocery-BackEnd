@@ -54,4 +54,13 @@ public class OrderController {
     public ResponseEntity<List<VoucherDto>> getAvailableVouchers() {
         return ResponseEntity.ok(voucherService.getAvailableVouchers());
     }
+
+    @Operation(summary = "Hủy đơn hàng")
+    @PostMapping("/{orderId}/cancel")
+    public ResponseEntity<OrderDto> cancelOrder(
+            @AuthenticationPrincipal User user,
+            @PathVariable Long orderId
+    ) {
+        return ResponseEntity.ok(orderService.cancelOrder(user, orderId));
+    }
 }

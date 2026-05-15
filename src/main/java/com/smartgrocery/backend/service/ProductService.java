@@ -6,10 +6,10 @@ import com.smartgrocery.backend.dto.ProductDto;
 import com.smartgrocery.backend.dto.ProductVariantDto;
 import com.smartgrocery.backend.entity.Product;
 import com.smartgrocery.backend.entity.ProductVariant;
-import com.smartgrocery.backend.repository.InventoryStockRepository;
-import com.smartgrocery.backend.repository.OrderItemRepository;
-import com.smartgrocery.backend.repository.ProductRepository;
-import com.smartgrocery.backend.repository.ProductVariantRepository;
+import com.smartgrocery.backend.repository.jpa.InventoryStockRepository;
+import com.smartgrocery.backend.repository.jpa.OrderItemRepository;
+import com.smartgrocery.backend.repository.jpa.ProductRepository;
+import com.smartgrocery.backend.repository.jpa.ProductVariantRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -47,35 +47,87 @@ public class ProductService {
         String trimmedSearch = search != null ? search.trim() : "";
 
         if (hasSearch && hasCategory) {
-            page = productRepository.findByNameContainingIgnoreCaseAndCategoryId(trimmedSearch, categoryId, pageable);
+            page = productRepository.findAll((root, query, cb) -> cb.and(
+                    cb.equal(cb.upper(root.get("status")), "ACTIVE"),
+                    cb.like(cb.lower(root.get("name")), "%" + trimmedSearch.toLowerCase() + "%"),
+                    cb.equal(root.get("category").get("id"), categoryId)
+            ), pageable);
         } else if (hasSearch) {
-            page = productRepository.findByNameContainingIgnoreCase(trimmedSearch, pageable);
+            page = productRepository.findAll((root, query, cb) -> cb.and(
+                    cb.equal(cb.upper(root.get("status")), "ACTIVE"),
+                    cb.like(cb.lower(root.get("name")), "%" + trimmedSearch.toLowerCase() + "%")
+            ), pageable);
         } else if (hasCategory) {
-            page = productRepository.findByCategoryId(categoryId, pageable);
+            page = productRepository.findAll((root, query, cb) -> cb.and(
+                    cb.equal(cb.upper(root.get("status")), "ACTIVE"),
+                    cb.equal(root.get("category").get("id"), categoryId)
+            ), pageable);
         } else {
-            page = productRepository.findAll(pageable);
+            page = productRepository.findAll((root, query, cb) -> cb.equal(cb.upper(root.get("status")), "ACTIVE"), pageable);
         }
 
         List<Long> productIds = page.getContent().stream().map(Product::getId).toList();
         Map<Long, Long> purchaseCountByProductId = getPurchaseCountByProductIds(productIds);
-        return page.map(product -> mapToDto(product, purchaseCountByProductId.getOrDefault(product.getId(), 0L)));
+        
+        // 1. Bulk fetch all variants for these products
+        List<ProductVariant> allVariants = productIds.isEmpty()
+                ? List.of()
+                : productVariantRepository.findByProduct_IdInAndStatus(productIds, "ACTIVE");
+        Map<Long, List<ProductVariant>> variantsByProductId = allVariants.stream()
+                .collect(Collectors.groupingBy(v -> v.getProduct().getId()));
+
+        // 2. Bulk fetch all inventory sums for these variants
+        List<Long> variantIds = allVariants.stream().map(ProductVariant::getId).toList();
+        Map<Long, Integer> stockByVariantId = Map.of();
+        if (!variantIds.isEmpty()) {
+            stockByVariantId = inventoryStockRepository.sumAvailableByVariantIds(variantIds).stream()
+                    .collect(Collectors.toMap(
+                            row -> row.getVariantId(),
+                            row -> row.getTotalAvailable().intValue()
+                    ));
+        }
+
+        final Map<Long, Integer> finalStockMap = stockByVariantId;
+        return page.map(product -> {
+            List<ProductVariant> variants = variantsByProductId.getOrDefault(product.getId(), List.of());
+            Long pCount = purchaseCountByProductId.getOrDefault(product.getId(), 0L);
+            return mapToDto(product, variants, pCount, finalStockMap);
+        });
     }
 
     public ProductDto getProductById(Long id) {
         Product product = productRepository.findById(id).orElseThrow(() -> new RuntimeException("Product not found"));
+        if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) {
+            throw new RuntimeException("Product not found");
+        }
         Long purchaseCount = getPurchaseCountByProductIds(List.of(product.getId())).getOrDefault(product.getId(), 0L);
         return mapToDto(product, purchaseCount);
     }
 
     public ProductDto getProductByCode(String productCode) {
         Product product = productRepository.findByProductCode(productCode).orElseThrow(() -> new RuntimeException("Product not found"));
+        if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) {
+            throw new RuntimeException("Product not found");
+        }
         Long purchaseCount = getPurchaseCountByProductIds(List.of(product.getId())).getOrDefault(product.getId(), 0L);
         return mapToDto(product, purchaseCount);
     }
 
     private ProductDto mapToDto(Product product, Long purchaseCount) {
-        List<ProductVariant> variants = productVariantRepository.findByProduct_Id(product.getId());
+        List<ProductVariant> variants = productVariantRepository.findByProduct_IdAndStatus(product.getId(), "ACTIVE");
+        List<Long> variantIds = variants.stream().map(ProductVariant::getId).toList();
+        Map<Long, Integer> stockByVariantId = Map.of();
+        if (!variantIds.isEmpty()) {
+            stockByVariantId = inventoryStockRepository.sumAvailableByVariantIds(variantIds).stream()
+                    .collect(Collectors.toMap(
+                            row -> row.getVariantId(),
+                            row -> row.getTotalAvailable().intValue()
+                    ));
+        }
+        return mapToDto(product, variants, purchaseCount, stockByVariantId);
+    }
 
+    private ProductDto mapToDto(Product product, List<ProductVariant> variants, Long purchaseCount, Map<Long, Integer> stockByVariantId) {
         return ProductDto.builder()
                 .id(product.getId())
                 .productCode(product.getProductCode())
@@ -106,15 +158,16 @@ public class ProductService {
                         .sku(v.getSku())
                         .barcode(v.getBarcode())
                         .variantName(v.getVariantName())
+                        .color(v.getColor())
+                        .size(v.getSize())
                         .unit(v.getUnit())
                         .packageSize(v.getPackageSize())
                         .weightGram(v.getWeightGram())
-                        .aisleLocation(v.getAisleLocation())
                         .netPrice(v.getNetPrice())
                         .compareAtPrice(v.getCompareAtPrice())
                         .vatPercent(v.getVatPercent())
                         .status(v.getStatus())
-                        .stock(inventoryStockRepository.sumAvailableByVariantId(v.getId()) != null ? inventoryStockRepository.sumAvailableByVariantId(v.getId()).intValue() : 0)
+                        .stock(stockByVariantId.getOrDefault(v.getId(), 0))
                         .build()).collect(Collectors.toList()))
                 .build();
     }

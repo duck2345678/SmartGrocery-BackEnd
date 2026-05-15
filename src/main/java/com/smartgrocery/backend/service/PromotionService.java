@@ -2,7 +2,7 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.PromotionCampaignDto;
 import com.smartgrocery.backend.entity.PromotionCampaign;
-import com.smartgrocery.backend.repository.PromotionCampaignRepository;
+import com.smartgrocery.backend.repository.jpa.PromotionCampaignRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

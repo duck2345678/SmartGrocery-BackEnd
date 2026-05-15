@@ -2,7 +2,7 @@ package com.smartgrocery.backend.scheduler;
 
 import com.smartgrocery.backend.entity.AttendanceRecord;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.repository.AttendanceRecordRepository;
+import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
 import com.smartgrocery.backend.service.FcmService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

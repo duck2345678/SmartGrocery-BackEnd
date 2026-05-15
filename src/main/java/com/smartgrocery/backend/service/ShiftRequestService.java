@@ -7,8 +7,8 @@ import com.smartgrocery.backend.dto.ShiftRequestDto;
 import com.smartgrocery.backend.entity.ShiftRequest;
 import com.smartgrocery.backend.entity.ShiftSchedule;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.repository.ShiftRequestRepository;
-import com.smartgrocery.backend.repository.ShiftScheduleRepository;
+import com.smartgrocery.backend.repository.jpa.ShiftRequestRepository;
+import com.smartgrocery.backend.repository.jpa.ShiftScheduleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
@@ -37,6 +37,7 @@ public class ShiftRequestService {
 
     private final ShiftRequestRepository shiftRequestRepository;
     private final ShiftScheduleRepository shiftScheduleRepository;
+    private final NotificationService notificationService;
 
     @Value("${app.shift-request.min-days-ahead:1}")
     private int minDaysAhead;
@@ -198,6 +199,15 @@ public class ShiftRequestService {
             sr.setStatus(STATUS_REJECTED);
             sr.setAdminNote(request.getAdminNote());
         }
+
+        // Send notification to staff
+        String title = STATUS_APPROVED.equals(newStatus) ? "Đăng ký ca đã được duyệt" : "Đăng ký ca đã bị từ chối";
+        String body = String.format("Đơn đăng ký ca %s ngày %s của bạn đã được xử lý.", 
+                sr.getShiftType(), sr.getWorkDate().toString());
+        if (sr.getAdminNote() != null && !sr.getAdminNote().isBlank()) {
+            body += " Ghi chú: " + sr.getAdminNote();
+        }
+        notificationService.sendNotification(sr.getUser(), title, body, "SHIFT_UPDATE");
 
         return toDto(shiftRequestRepository.save(sr));
     }

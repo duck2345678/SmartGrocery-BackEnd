@@ -7,7 +7,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Mono;
+
 
 import java.util.List;
 
@@ -26,11 +26,20 @@ public class MealPlanController {
         return ResponseEntity.ok(mealPlanService.getByUserId(userId));
     }
 
-    @Operation(summary = "Yêu cầu AI tạo thực đơn 7 ngày mới")
+    @Operation(summary = "Tạo thực đơn AI (MEMM-powered)")
     @PostMapping("/generate")
-    public Mono<ResponseEntity<MealPlan>> generate(@RequestParam Long userId, @RequestParam String goal) {
-        return mealPlanService.generateAIPlan(userId, goal)
-                .map(ResponseEntity::ok)
-                .defaultIfEmpty(ResponseEntity.badRequest().build());
+    public ResponseEntity<java.util.Map<String, Object>> generate(@RequestBody java.util.Map<String, Object> body) {
+        Long userId = com.smartgrocery.backend.security.SecurityUtils.getCurrentUserId();
+        String goal = body.get("goal") != null ? body.get("goal").toString() : null;
+        MealPlanService.MealPlanGenerationResult result = mealPlanService.generateAIPlanStructured(userId, goal);
+
+        java.util.Map<String, Object> response = new java.util.HashMap<>();
+        response.put("mealPlan", result.getMealPlan());
+        response.put("trustScore", result.getTrustScore());
+        response.put("explanations", result.getExplanations());
+        response.put("allergyWarnings", result.getAllergyWarnings());
+        response.put("proposedItems", result.getProposedItems());
+        return ResponseEntity.ok(response);
     }
+
 }

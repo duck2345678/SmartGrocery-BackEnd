@@ -2,11 +2,11 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.StaffSubstitutionOptionDto;
 import com.smartgrocery.backend.entity.*;
-import com.smartgrocery.backend.repository.InventoryStockRepository;
-import com.smartgrocery.backend.repository.OrderItemRepository;
-import com.smartgrocery.backend.repository.OrderRepository;
-import com.smartgrocery.backend.repository.ProductVariantRepository;
-import com.smartgrocery.backend.repository.WarehouseRepository;
+import com.smartgrocery.backend.repository.jpa.InventoryStockRepository;
+import com.smartgrocery.backend.repository.jpa.OrderItemRepository;
+import com.smartgrocery.backend.repository.jpa.OrderRepository;
+import com.smartgrocery.backend.repository.jpa.ProductVariantRepository;
+import com.smartgrocery.backend.repository.jpa.WarehouseRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -21,6 +21,9 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
+import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
+import com.smartgrocery.backend.entity.AttendanceRecord;
+import java.time.LocalDate;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -32,6 +35,7 @@ public class StaffSubstitutionServiceTest {
     @Mock private ProductVariantRepository productVariantRepository;
     @Mock private InventoryStockRepository inventoryStockRepository;
     @Mock private WarehouseRepository warehouseRepository;
+    @Mock private AttendanceRecordRepository attendanceRecordRepository;
 
     private StaffOrderFlowService newService() {
         StaffOrderFlowService s = new StaffOrderFlowService();
@@ -40,8 +44,16 @@ public class StaffSubstitutionServiceTest {
         ReflectionTestUtils.setField(s, "productVariantRepository", productVariantRepository);
         ReflectionTestUtils.setField(s, "inventoryStockRepository", inventoryStockRepository);
         ReflectionTestUtils.setField(s, "warehouseRepository", warehouseRepository);
+        ReflectionTestUtils.setField(s, "attendanceRecordRepository", attendanceRecordRepository);
         ReflectionTestUtils.setField(s, "clock", Clock.fixed(Instant.parse("2026-04-19T10:00:00Z"), ZoneId.of("Asia/Ho_Chi_Minh")));
         return s;
+    }
+
+    private InventoryStockRepository.VariantStockSum mockStock(Long id, Long total) {
+        InventoryStockRepository.VariantStockSum m = mock(InventoryStockRepository.VariantStockSum.class);
+        when(m.getVariantId()).thenReturn(id);
+        when(m.getTotalAvailable()).thenReturn(total);
+        return m;
     }
 
     @Test
@@ -70,9 +82,13 @@ public class StaffSubstitutionServiceTest {
         when(orderItemRepository.findById(1L)).thenReturn(Optional.of(oi));
         when(productVariantRepository.findTop50ByProduct_Category_IdAndStatusAndNetPriceLessThanEqualOrderByNetPriceDesc(2L, "ACTIVE", BigDecimal.valueOf(30000)))
                 .thenReturn(List.of(original, ok1, ok2, oos));
-        when(inventoryStockRepository.sumAvailableByVariantId(201L)).thenReturn(10L);
-        when(inventoryStockRepository.sumAvailableByVariantId(202L)).thenReturn(1L);
-        when(inventoryStockRepository.sumAvailableByVariantId(203L)).thenReturn(0L);
+        var s1 = mockStock(201L, 10L);
+        var s2 = mockStock(202L, 1L);
+        var s3 = mockStock(203L, 0L);
+
+        when(inventoryStockRepository.sumAvailableByVariantIds(anyList())).thenReturn(List.of(s1, s2, s3));
+        when(attendanceRecordRepository.findByUser_IdAndWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(anyLong(), any(LocalDate.class)))
+                .thenReturn(Optional.of(AttendanceRecord.builder().build()));
 
         List<StaffSubstitutionOptionDto> res = service.getSubstitutions(99L, 1L, staff);
         assertEquals(2, res.size());

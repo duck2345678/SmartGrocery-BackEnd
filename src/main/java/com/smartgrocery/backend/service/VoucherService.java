@@ -2,7 +2,7 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.VoucherDto;
 import com.smartgrocery.backend.entity.Voucher;
-import com.smartgrocery.backend.repository.VoucherRepository;
+import com.smartgrocery.backend.repository.jpa.VoucherRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

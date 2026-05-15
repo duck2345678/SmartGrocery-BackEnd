@@ -5,7 +5,7 @@ import com.smartgrocery.backend.dto.OrderDto;
 import com.smartgrocery.backend.dto.OrderItemDto;
 import com.smartgrocery.backend.dto.OrderItemRequest;
 import com.smartgrocery.backend.entity.*;
-import com.smartgrocery.backend.repository.*;
+import com.smartgrocery.backend.repository.jpa.*;
 import com.smartgrocery.backend.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -136,9 +136,14 @@ public class OrderService {
                 throw new RuntimeException("Sản phẩm [" + variant.getVariantName() + "] đã hết hàng (Chỉ còn " + (stock.getAvailableQuantity() != null ? stock.getAvailableQuantity() : 0) + ")");
             }
 
-            // Snapshot price
-            BigDecimal unitPrice = variant.getNetPrice();
-            BigDecimal itemTotal = unitPrice.multiply(BigDecimal.valueOf(itemReq.getQuantity()));
+            // Snapshot price and discount
+            BigDecimal netPrice = variant.getNetPrice();
+            BigDecimal compareAtPrice = variant.getCompareAtPrice();
+            BigDecimal unitPrice = (compareAtPrice != null && compareAtPrice.compareTo(netPrice) > 0) ? compareAtPrice : netPrice;
+            BigDecimal discountPerItem = unitPrice.subtract(netPrice);
+            BigDecimal totalItemDiscount = discountPerItem.multiply(BigDecimal.valueOf(itemReq.getQuantity()));
+            BigDecimal itemSubtotal = unitPrice.multiply(BigDecimal.valueOf(itemReq.getQuantity()));
+            BigDecimal itemTotal = netPrice.multiply(BigDecimal.valueOf(itemReq.getQuantity()));
 
             OrderItem orderItem = OrderItem.builder()
                     .order(savedOrder)
@@ -148,7 +153,8 @@ public class OrderService {
                     .sku(variant.getSku())
                     .quantity(itemReq.getQuantity())
                     .unitPrice(unitPrice)
-                    .subtotal(itemTotal)
+                    .subtotal(itemSubtotal)
+                    .discountAmount(totalItemDiscount)
                     .totalPrice(itemTotal)
                     .build();
 
@@ -237,11 +243,60 @@ public class OrderService {
         return mapToDto(order);
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public OrderDto cancelOrder(User user, Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Đơn hàng không tồn tại"));
+
+        // Only owner or admin can cancel
+        if (!order.getUser().getId().equals(user.getId()) && !user.getRole().getName().contains("ADMIN")) {
+            throw new RuntimeException("Bạn không có quyền hủy đơn hàng này");
+        }
+
+        // Allow cancellation until "Confirmed Packing" (READY_TO_SHIP)
+        List<String> cancellableStatuses = List.of("PENDING", "ASSIGNED", "PICKING");
+        if (!cancellableStatuses.contains(order.getStatus()) && !user.getRole().getName().contains("ADMIN")) {
+            throw new RuntimeException("Đơn hàng đã được đóng gói hoặc đang giao, không thể hủy");
+        }
+
+        if ("CANCELLED".equals(order.getStatus())) {
+            throw new RuntimeException("Đơn hàng đã được hủy trước đó");
+        }
+
+        // 1. Update status
+        order.setStatus("CANCELLED");
+        order.setUpdatedAt(LocalDateTime.now());
+
+        // 2. Return stock
+        Warehouse warehouse = warehouseRepository.findAll().stream().findFirst()
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy kho hàng"));
+
+        if (order.getOrderItems() != null) {
+            for (OrderItem item : order.getOrderItems()) {
+                InventoryStock stock = inventoryStockRepository.findByWarehouseIdAndVariantId(warehouse.getId(), item.getVariant().getId())
+                        .orElse(null);
+                if (stock != null) {
+                    stock.setAvailableQuantity(stock.getAvailableQuantity() + item.getQuantity());
+                    inventoryStockRepository.save(stock);
+                }
+            }
+        }
+
+        Order saved = orderRepository.save(order);
+        return mapToDto(saved);
+    }
+
     private OrderDto mapToDto(Order order) {
         return OrderDto.builder()
                 .id(order.getId())
                 .userId(order.getUser().getId())
                 .addressId(order.getAddress() != null ? order.getAddress().getId() : null)
+                .addressLine(order.getAddress() != null ? 
+                        String.format("%s, %s, %s, %s", 
+                            order.getAddress().getStreetAddress(), 
+                            order.getAddress().getWard(), 
+                            order.getAddress().getDistrict(), 
+                            order.getAddress().getCity()) : null)
                 .orderNumber(order.getOrderNumber())
                 .subtotal(order.getSubtotal())
                 .discountAmount(order.getDiscountAmount())
@@ -261,7 +316,8 @@ public class OrderService {
                 .deliveredAt(order.getDeliveredAt())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
-                .items(order.getOrderItems() != null ? order.getOrderItems().stream().map(item -> OrderItemDto.builder()
+                .items(order.getOrderItems() != null ? order.getOrderItems().stream().map(item -> {
+                    return OrderItemDto.builder()
                         .id(item.getId())
                         .variantId(item.getVariant().getId())
                         .productName(item.getProductName())
@@ -276,7 +332,9 @@ public class OrderService {
                         .isSubstituted(item.getIsSubstituted())
                         .substitutedVariantId(item.getSubstitutedVariant() != null ? item.getSubstitutedVariant().getId() : null)
                         .substitutionReason(item.getSubstitutionReason())
-                        .build()).collect(Collectors.toList()) : null)
+                        .imageUrl(item.getVariant().getProduct().getImage())
+                        .build();
+                }).collect(Collectors.toList()) : null)
                 .build();
     }
 

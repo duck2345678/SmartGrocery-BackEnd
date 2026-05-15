@@ -2,9 +2,9 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.entity.Order;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.repository.AttendanceRecordRepository;
-import com.smartgrocery.backend.repository.OrderRepository;
-import com.smartgrocery.backend.repository.UserRepository;
+import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
+import com.smartgrocery.backend.repository.jpa.OrderRepository;
+import com.smartgrocery.backend.repository.jpa.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -113,7 +113,7 @@ public class OrderDispatchService {
                     "Đơn hàng mới đã phân công",
                     "Bạn có đơn mới #" + orderId + ", vui lòng vào app staff để xử lý.",
                     "NEW_ORDER_ASSIGNED",
-                    Map.of("route", "/(staff)/lease-queue", "type", "NEW_ORDER_ASSIGNED"),
+                    Map.of("route", "/(staff)/orders", "type", "NEW_ORDER_ASSIGNED"),
                     List.of(staff)
             );
         } catch (Exception e) {

@@ -27,6 +27,7 @@ import java.time.LocalDate;
 public class AdminUserController {
 
     private final AdminUserManagementService adminUserManagementService;
+    private final com.smartgrocery.backend.service.OrderService orderService;
 
     private void assertAdminOrStaff() {
         if (!SecurityUtils.hasAnyRole("ADMIN", "STAFF")) {
@@ -88,5 +89,39 @@ public class AdminUserController {
         assertAdminOrStaff();
         String reason = request != null ? request.getReason() : null;
         return ResponseEntity.ok(adminUserManagementService.softDelete(actor, id, reason));
+    }
+
+    @Operation(summary = "Lấy lịch sử đơn hàng của user")
+    @GetMapping("/{id}/orders")
+    public ResponseEntity<java.util.List<com.smartgrocery.backend.dto.OrderDto>> getUserOrders(
+            @PathVariable("id") Long id
+    ) {
+        assertAdminOrStaff();
+        return ResponseEntity.ok(orderService.getUserOrders(id));
+    }
+
+    @Operation(summary = "Lấy thống kê mua sắm của khách hàng")
+    @GetMapping("/{id}/analytics")
+    public ResponseEntity<java.util.Map<String, Object>> getCustomerAnalytics(@PathVariable("id") Long id) {
+        assertAdminOrStaff();
+        // Giả lập tính toán từ OrderService (thực tế sẽ gọi Service chuyên biệt)
+        java.util.List<com.smartgrocery.backend.dto.OrderDto> orders = orderService.getUserOrders(id);
+        
+        long totalOrders = orders.size();
+        long cancelledOrders = orders.stream().filter(o -> "CANCELLED".equals(o.getStatus())).count();
+        double totalSpent = orders.stream()
+                .filter(o -> "DELIVERED".equals(o.getStatus()) || "COMPLETED".equals(o.getStatus()))
+                .mapToDouble(o -> o.getTotalAmount().doubleValue())
+                .sum();
+        
+        double cancelRate = totalOrders > 0 ? (double) cancelledOrders / totalOrders * 100 : 0;
+        
+        java.util.Map<String, Object> stats = new java.util.HashMap<>();
+        stats.put("totalSpent", totalSpent);
+        stats.put("orderCount", totalOrders);
+        stats.put("cancelRate", cancelRate);
+        stats.put("vipStatus", totalSpent > 5000000 ? "VIP" : "REGULAR");
+        
+        return ResponseEntity.ok(stats);
     }
 }

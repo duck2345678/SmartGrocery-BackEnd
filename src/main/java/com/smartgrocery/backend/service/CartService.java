@@ -7,11 +7,11 @@ import com.smartgrocery.backend.entity.Cart;
 import com.smartgrocery.backend.entity.CartItem;
 import com.smartgrocery.backend.entity.ProductVariant;
 import com.smartgrocery.backend.entity.User;
-import com.smartgrocery.backend.repository.CartItemRepository;
-import com.smartgrocery.backend.repository.CartRepository;
-import com.smartgrocery.backend.repository.InventoryStockRepository;
-import com.smartgrocery.backend.repository.ProductVariantRepository;
-import com.smartgrocery.backend.repository.UserRepository;
+import com.smartgrocery.backend.repository.jpa.CartItemRepository;
+import com.smartgrocery.backend.repository.jpa.CartRepository;
+import com.smartgrocery.backend.repository.jpa.InventoryStockRepository;
+import com.smartgrocery.backend.repository.jpa.ProductVariantRepository;
+import com.smartgrocery.backend.repository.jpa.UserRepository;
 import com.smartgrocery.backend.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -142,6 +142,7 @@ public class CartService {
                 .productName(item.getVariant().getProduct().getName())
                 .sku(item.getVariant().getSku())
                 .unitPrice(item.getVariant().getNetPrice())
+                .compareAtPrice(item.getVariant().getCompareAtPrice())
                 .quantity(item.getQuantity())
                 .subtotal(subtotal)
                 .imageUrl(item.getVariant().getProduct().getImage())

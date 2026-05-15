@@ -1,6 +1,6 @@
 package com.smartgrocery.backend.task;
 
-import com.smartgrocery.backend.repository.UserSessionRepository;
+import com.smartgrocery.backend.repository.jpa.UserSessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
