@@ -71,6 +71,9 @@ public class ProductVariant {
     @Builder.Default
     private String status = "ACTIVE";
 
+    @Column(name = "flash_sale_ends_at")
+    private LocalDateTime flashSaleEndsAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

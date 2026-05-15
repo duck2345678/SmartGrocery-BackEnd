@@ -63,6 +63,7 @@ public class CartService {
                     .cart(cart)
                     .variant(variant)
                     .quantity(request.getQuantity())
+                    .allowSubstitution(request.getAllowSubstitution() != null ? request.getAllowSubstitution() : false)
                     .build();
             cartItemRepository.save(newItem);
         }
@@ -148,6 +149,7 @@ public class CartService {
                 .imageUrl(item.getVariant().getProduct().getImage())
                 .stock(stock)
                 .addedAt(item.getAddedAt())
+                .allowSubstitution(item.getAllowSubstitution())
                 .build();
     }
 }

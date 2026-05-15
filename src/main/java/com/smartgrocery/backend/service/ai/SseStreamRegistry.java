@@ -50,6 +50,16 @@ public class SseStreamRegistry {
         emit(messageId, "reply_delta", Map.of("text", delta));
     }
 
+    public void emitStatus(Long messageId, String status) {
+        if (status == null || status.isEmpty()) return;
+        emit(messageId, "status_update", Map.of("status", status));
+    }
+
+    public void emitPayload(Long messageId, Object payload) {
+        if (payload == null) return;
+        emit(messageId, "payload_update", payload);
+    }
+
     public void emitWarning(Long messageId, String code) {
         emit(messageId, "warning", Map.of("code", code));
     }

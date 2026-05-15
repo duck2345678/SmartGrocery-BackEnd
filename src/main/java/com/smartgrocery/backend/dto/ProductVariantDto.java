@@ -26,4 +26,5 @@ public class ProductVariantDto {
     private BigDecimal vatPercent;
     private String status;
     private Integer stock;
+    private java.time.LocalDateTime flashSaleEndsAt;
 }

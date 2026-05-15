@@ -58,10 +58,11 @@ public class AdminProductController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean discounted,
             Pageable pageable
     ) {
         assertAdmin();
-        return ResponseEntity.ok(adminProductService.search(search, categoryId, status, pageable));
+        return ResponseEntity.ok(adminProductService.search(search, categoryId, status, discounted, pageable));
     }
 
     @Operation(summary = "Get product catalog summary counts")
@@ -149,10 +150,11 @@ public class AdminProductController {
             @AuthenticationPrincipal User actor,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false) String status
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean discounted
     ) {
         assertAdmin();
-        byte[] bytes = adminProductService.exportExcel(actor, search, categoryId, status);
+        byte[] bytes = adminProductService.exportExcel(actor, search, categoryId, status, discounted);
         String filename = "products-" + LocalDate.now() + ".xlsx";
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(filename).build().toString())

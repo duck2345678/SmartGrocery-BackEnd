@@ -9,7 +9,10 @@ import java.time.LocalDateTime;
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class Shipment {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
-    @ManyToOne @JoinColumn(name="order_id") private Order order;
+    @ManyToOne 
+    @JoinColumn(name="order_id") 
+    @org.hibernate.annotations.OnDelete(action = org.hibernate.annotations.OnDeleteAction.CASCADE)
+    private Order order;
     private String carrierName;
     private String trackingCode;
     private String shipmentStatus;

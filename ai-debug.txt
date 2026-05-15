@@ -213,3 +213,145 @@ Toàn bộ luồng tư duy (thoughtProcess) của Gemini sẽ được ghi vào 
 [2026-05-15T00:05:18.207984500] AI THOUGHT:
 1. Bước 2: Chốt danh sách. 2. User muốn tạo danh sách mua sắm cho bữa tối giảm cân. 3. Đã có thông tin user không ăn hải sản. 4. Các sản phẩm phù hợp có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems chứa ID sản phẩm.
 ==============================
+
+[2026-05-15T09:07:14.208570700] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User không thích 3 món trên. 3. Gợi ý món khác. 4. Sản phẩm phù hợp có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems rỗng.
+==============================
+
+[2026-05-15T10:35:42.542704900] AI THOUGHT:
+1. Bước 2: Chốt danh sách. 2. User chọn món số 1 (Ức gà áp chảo + măng tây + khoai lang). 3. Đã cập nhật danh sách nguyên liệu. 4. Các sản phẩm đều có trong kho. 5. Không vi phạm dị ứng/BMI. 6. Đã điền proposedItems.
+==============================
+
+[2026-05-15T10:38:41.385258900] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User hỏi món tối. 3. Gợi ý Beefsteak sốt tiêu. 4. Sản phẩm phù hợp có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems rỗng.
+==============================
+
+[2026-05-15T10:39:16.866675100] AI THOUGHT:
+1. Bước 1: Gợi ý. 2. User than nhà dơ. 3. Tìm sản phẩm vệ sinh nhà cửa. 4. Không có sản phẩm phù hợp trong kho. 5. Đề xuất tìm kiếm sản phẩm.
+==============================
+
+[2026-05-15T10:39:28.455590100] AI THOUGHT:
+1. Bước 1: Gợi ý sản phẩm. 2. User muốn tìm sản phẩm vệ sinh nhà cửa. 3. Gọi tool search_catalog để tìm kiếm. 4. Trả về kết quả cho user.
+==============================
+
+[2026-05-15T10:39:42.530016900] AI THOUGHT:
+1. Bước 1: Gợi ý sản phẩm. 2. User muốn tìm sản phẩm vệ sinh nhà cửa. 3. Gọi tool search_catalog để tìm kiếm. 4. Không có thông tin về dị ứng hoặc BMI liên quan đến sản phẩm vệ sinh. 5. proposedItems rỗng.
+==============================
+
+[2026-05-15T11:09:12.166098500] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User hỏi về sữa bò. 3. Kiểm tra dị ứng của user. 4. Phát hiện dị ứng sữa bò. 5. Thông báo cho user về dị ứng.
+==============================
+
+[2026-05-15T11:09:35.038536200] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User hỏi món mì ý spaghetti. 3. Gợi ý mì ý spaghetti. 4. Sản phẩm phù hợp có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems rỗng.
+==============================
+
+[2026-05-15T11:09:58.865149200] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User hỏi món mì ý. 3. Gợi ý mì ý sốt bò bằm. 4. Các sản phẩm phù hợp có sẵn trong kho. 5. Cà chua có trong thành phần món ăn và user dị ứng cà chua. 6. Đã cảnh báo user.
+==============================
+
+[2026-05-15T11:10:39.688135] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User muốn ăn tôm nướng muối tiêu xanh. 3. Tôm là món dị ứng của user. 4. Cần cảnh báo dị ứng.
+==============================
+
+[2026-05-15T11:11:34.254791100] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User hỏi lại món Mì ý spaghetti. 3. Gợi ý Mì ý gà sốt kem. 4. Sản phẩm phù hợp có sẵn trong kho. 5. Có xung đột dị ứng (cà chua, sữa bò) -> đổi sốt kem. 6. proposedItems rỗng.
+==============================
+
+[2026-05-15T11:12:57.959253800] AI THOUGHT:
+1. User hỏi về cấu trúc phân tử nước, không liên quan đến phạm vi của SmartGrocery AI Advisor. 2. Trả lời trực tiếp kiến thức về hóa học. 3. Bỏ qua các phần gợi ý thực đơn hay tạo danh sách mua sắm. 4. proposedItems là mảng rỗng.
+==============================
+
+[2026-05-15T11:15:11.453515800] AI THOUGHT:
+1. Bước hiện tại: Gợi ý khuyến mãi. 2. User hỏi về khuyến mãi. 3. Gọi tool get_promotions để lấy thông tin khuyến mãi. 4. Không có sản phẩm cụ thể nào được đề xuất. 5. Không có xung đột dị ứng/BMI. 6. Đảm bảo định dạng JSON.
+==============================
+
+[2026-05-15T11:15:33.284199200] AI THOUGHT:
+1. Bước 1: Gợi ý. 2. User hỏi khuyến mãi trứng vịt. 3. Gọi tool get_promotions để tìm khuyến mãi. 4. Trả lời user về khuyến mãi (nếu có).
+==============================
+
+[2026-05-15T11:16:33.579130600] AI THOUGHT:
+1. Bước hiện tại: Chưa rõ (kiểm tra thông tin user). 2. User hỏi đã xem hồ sơ chưa. 3. Cần gọi tool inspect_user_context để kiểm tra hồ sơ người dùng (dị ứng, BMI...).
+==============================
+
+[2026-05-15T11:50:31.152753300] AI THOUGHT:
+1. Bước 1: Gợi ý sản phẩm. 2. User nói nhà dơ -> gợi ý sản phẩm vệ sinh. 3. Gọi tool search_catalog để tìm sản phẩm phù hợp. 4. Không vi phạm dị ứng/BMI. 5. proposedItems rỗng.
+==============================
+
+{"timestamp":"2026-05-15T13:16:40.527113300","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Yến mạch sữa hạnh nhân + blueberry","ingredients":["yến mạch","sữa hạnh nhân","blueberry"],"reason":"nhẹ bụng, hợp khi uống cùng cà phê và vẫn đủ chất xơ"},{"optionNo":2,"title":"Trứng luộc + khoai lang + dưa leo","ingredients":["trứng","khoai lang","dưa leo"],"reason":"no lâu, ít dầu mỡ, không bị quá ngọt khi đi kèm cà phê"},{"optionNo":3,"title":"Đậu hũ áp chảo + nấm + rau xanh","ingredients":["đậu hũ","nấm","rau xanh"],"reason":"protein thực vật, nhẹ bụng, đổi vị so với món gà"}]}
+
+{"timestamp":"2026-05-15T13:16:54.890957300","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Salad trứng + xà lách + dưa leo","ingredients":["trứng","xà lách","dưa leo"],"reason":"tươi, nhanh, phù hợp khi muốn ăn nhẹ cùng cà phê"},{"optionNo":2,"title":"Khoai lang + sữa hạnh nhân + táo","ingredients":["khoai lang","sữa hạnh nhân","táo"],"reason":"có tinh bột tốt và vị ngọt tự nhiên, không quá nặng bụng"},{"optionNo":3,"title":"Đậu hũ sốt nấm + su hào luộc","ingredients":["đậu hũ","nấm","su hào"],"reason":"ấm bụng, ít calo, dùng được cho bữa nhẹ hoặc bữa tối"}]}
+
+[2026-05-15T13:17:14.053199700] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User muốn ăn thịt heo. 3. Gợi ý thịt heo áp chảo. 4. Sản phẩm phù hợp có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems rỗng.
+==============================
+
+[2026-05-15T13:17:34.136585] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User muốn ăn thịt luộc. 3. Gợi ý thịt heo luộc. 4. Sản phẩm phù hợp có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems rỗng.
+==============================
+
+[2026-05-15T13:17:48.443077100] AI THOUGHT:
+1. Bước 2: Chốt danh sách. 2. User đồng ý tạo danh sách thịt heo luộc. 3. Đã cập nhật danh sách nguyên liệu. 4. Sản phẩm phù hợp có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. Tạo proposedItems.
+==============================
+
+{"timestamp":"2026-05-15T13:19:09.661982900","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Ức gà áp chảo + măng tây + khoai lang","ingredients":["ức gà","măng tây","khoai lang"],"reason":"giàu protein, no lâu, ít dầu mỡ"},{"optionNo":2,"title":"Đậu hũ sốt nấm + su hào luộc + yến mạch mặn","ingredients":["đậu hũ","nấm","su hào","yến mạch"],"reason":"nhẹ bụng, giàu chất xơ, hợp bữa tối giảm cân"},{"optionNo":3,"title":"Trứng luộc + salad rau xanh + táo","ingredients":["trứng","xà lách","dưa leo","táo"],"reason":"đơn giản, ít calo, dễ chuẩn bị"}]}
+
+{"timestamp":"2026-05-15T13:27:34.534753400","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Ức gà áp chảo + măng tây + khoai lang","ingredients":["ức gà","măng tây","khoai lang"],"reason":"giàu protein, no lâu, ít dầu mỡ"},{"optionNo":2,"title":"Đậu hũ sốt nấm + su hào luộc + yến mạch mặn","ingredients":["đậu hũ","nấm","su hào","yến mạch"],"reason":"nhẹ bụng, giàu chất xơ, hợp bữa tối giảm cân"},{"optionNo":3,"title":"Trứng luộc + salad rau xanh + táo","ingredients":["trứng","xà lách","dưa leo","táo"],"reason":"đơn giản, ít calo, dễ chuẩn bị"}]}
+
+[2026-05-15T13:28:12.007546400] AI THOUGHT:
+1. Bước 2: Chốt danh sách. 2. User chọn món số 2 (Đậu hũ sốt nấm + su hào luộc + yến mạch mặn). 3. Đã cập nhật danh sách nguyên liệu. 4. Các sản phẩm đều có trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems chứa ID sản phẩm.
+==============================
+
+[2026-05-15T13:28:26.295524300] AI THOUGHT:
+1. Bước 2: Chốt danh sách. 2. User chọn món số 2 (Đậu hũ sốt nấm + su hào luộc + yến mạch mặn). 3. Đã cập nhật danh sách nguyên liệu. 4. Các sản phẩm đều có trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems chứa ID sản phẩm.
+==============================
+
+[2026-05-15T13:28:36.483324100] AI THOUGHT:
+1. Bước 2: Chốt danh sách. 2. User chọn món 3 (Trứng luộc + salad rau xanh + táo). 3. Đã cập nhật danh sách nguyên liệu. 4. Các sản phẩm có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems chứa ID sản phẩm.
+==============================
+
+{"timestamp":"2026-05-15T13:48:15.533645100","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Ức gà áp chảo + măng tây + khoai lang","ingredients":["ức gà","măng tây","khoai lang"],"reason":"giàu protein, no lâu, ít dầu mỡ"},{"optionNo":2,"title":"Đậu hũ sốt nấm + su hào luộc + yến mạch mặn","ingredients":["đậu hũ","nấm","su hào","yến mạch"],"reason":"nhẹ bụng, giàu chất xơ, hợp bữa tối giảm cân"},{"optionNo":3,"title":"Trứng luộc + salad rau xanh + táo","ingredients":["trứng","xà lách","dưa leo","táo"],"reason":"đơn giản, ít calo, dễ chuẩn bị"}]}
+
+[2026-05-15T13:48:41.814022400] AI THOUGHT:
+1. Bước 2: Chốt danh sách. 2. User chọn món số 1. 3. Đã cập nhật danh sách nguyên liệu. 4. Các sản phẩm có trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems chứa ID sản phẩm.
+==============================
+
+[2026-05-15T13:49:42.889489900] AI THOUGHT:
+1. Bước 1: Gợi ý. 2. User nói 'Nhà dơ quá' -> Cần đồ vệ sinh. 3. Gọi tool search_catalog để tìm sản phẩm vệ sinh nhà cửa. 4. Không vi phạm dị ứng/BMI. 5. proposedItems rỗng.
+==============================
+
+[2026-05-15T13:50:08.908753] AI THOUGHT:
+1. User hỏi về cấu trúc phân tử nước mắm (out-of-domain). 2. Trả lời ngắn gọn, khách quan. 3. proposedItems rỗng.
+==============================
+
+[2026-05-15T13:51:18.344778700] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User hỏi món cho ngày mai. 3. Gợi ý 3 món: Bún bò, cơm gà, bánh mì trứng. 4. Các sản phẩm phù hợp có sẵn trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems rỗng.
+==============================
+
+[2026-05-15T13:51:33.817053500] AI THOUGHT:
+1. Bước 2: Chốt danh sách. 2. User chọn 'Cơm gà Hải Nam'. 3. Cập nhật danh sách nguyên liệu: Gạo, Gà, Gừng, Hành lá. 4. Các sản phẩm có trong kho. 5. Không vi phạm dị ứng/BMI. 6. proposedItems chứa ID sản phẩm.
+==============================
+
+{"timestamp":"2026-05-15T14:19:19.955613600","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Ức gà áp chảo + măng tây + khoai lang","ingredients":["ức gà","măng tây","khoai lang"],"reason":"giàu protein, no lâu, ít dầu mỡ"},{"optionNo":2,"title":"Trứng luộc + salad rau xanh + táo","ingredients":["trứng","xà lách","dưa leo","táo"],"reason":"đơn giản, ít calo, dễ chuẩn bị"}]}
+
+[2026-05-15T14:20:32.878858400] AI THOUGHT:
+1. Bước 1: Gợi ý món. 2. User phản hồi về món ăn trước. 3. User nói không dị ứng xà lách và không ăn trứng luộc. 4. Cập nhật profile dị ứng và gợi ý món mới. 5. Gọi tool update_user_profile để cập nhật dị ứng. 6. Gợi ý món mới phù hợp.
+==============================
+
+[2026-05-15T14:20:57.071264900] AI THOUGHT:
+1. Bước 2: Chốt danh sách. 2. User chọn món số 1 (Ức gà áp chảo + măng tây + khoai lang). 3. Đã cập nhật danh sách nguyên liệu. 4. Các sản phẩm đều có trong kho. 5. Không vi phạm dị ứng, phù hợp mục tiêu giảm cân. 6. Đã điền proposedItems.
+==============================
+
+{"timestamp":"2026-05-15T15:22:38.586557800","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Ức gà áp chảo + măng tây + khoai lang","ingredients":["ức gà","măng tây","khoai lang"],"reason":"giàu protein, no lâu, ít dầu mỡ"}]}
+
+{"timestamp":"2026-05-15T15:25:32.610757200","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Yến mạch sữa hạnh nhân + blueberry","ingredients":["yến mạch","sữa hạnh nhân","blueberry"],"reason":"nhẹ bụng, hợp khi uống cùng cà phê và vẫn đủ chất xơ"},{"optionNo":2,"title":"Đậu hũ áp chảo + nấm + rau xanh","ingredients":["đậu hũ","nấm","rau xanh"],"reason":"protein thực vật, nhẹ bụng, đổi vị so với món gà"}]}
+
+{"timestamp":"2026-05-15T16:41:46.306244700","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Salad trứng + xà lách + dưa leo","ingredients":["trứng","xà lách","dưa leo"],"reason":"tươi, nhanh, phù hợp khi muốn ăn nhẹ cùng cà phê"},{"optionNo":2,"title":"Khoai lang + sữa hạnh nhân + táo","ingredients":["khoai lang","sữa hạnh nhân","táo"],"reason":"có tinh bột tốt và vị ngọt tự nhiên, không quá nặng bụng"},{"optionNo":3,"title":"Đậu hũ sốt nấm + su hào luộc","ingredients":["đậu hũ","nấm","su hào"],"reason":"ấm bụng, ít calo, dùng được cho bữa nhẹ hoặc bữa tối"}]}
+
+{"timestamp":"2026-05-15T16:48:01.014524800","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Ức gà áp chảo + măng tây + khoai lang","ingredients":["ức gà","măng tây","khoai lang"],"reason":"giàu protein, no lâu, ít dầu mỡ"},{"optionNo":2,"title":"Trứng luộc + salad rau xanh + táo","ingredients":["trứng","xà lách","dưa leo","táo"],"reason":"đơn giản, ít calo, dễ chuẩn bị"}]}
+
+{"timestamp":"2026-05-15T17:18:03.318711200","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Yến mạch sữa hạnh nhân + blueberry","ingredients":["yến mạch","sữa hạnh nhân","blueberry"],"reason":"nhẹ bụng, hợp khi uống cùng cà phê và vẫn đủ chất xơ"},{"optionNo":2,"title":"Trứng luộc + khoai lang + dưa leo","ingredients":["trứng","khoai lang","dưa leo"],"reason":"no lâu, ít dầu mỡ, không bị quá ngọt khi đi kèm cà phê"},{"optionNo":3,"title":"Đậu hũ áp chảo + nấm + rau xanh","ingredients":["đậu hũ","nấm","rau xanh"],"reason":"protein thực vật, nhẹ bụng, đổi vị so với món gà"}]}
+
+{"timestamp":"2026-05-15T18:20:47.895087200","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Salad trứng + xà lách + dưa leo","ingredients":["trứng","xà lách","dưa leo"],"reason":"tươi, nhanh, phù hợp khi muốn ăn nhẹ cùng cà phê"},{"optionNo":2,"title":"Khoai lang + sữa hạnh nhân + táo","ingredients":["khoai lang","sữa hạnh nhân","táo"],"reason":"có tinh bột tốt và vị ngọt tự nhiên, không quá nặng bụng"},{"optionNo":3,"title":"Đậu hũ sốt nấm + su hào luộc","ingredients":["đậu hũ","nấm","su hào"],"reason":"ấm bụng, ít calo, dùng được cho bữa nhẹ hoặc bữa tối"}]}
+
+{"timestamp":"2026-05-15T18:54:15.409175100","event":"FROZEN_MEAL_OPTIONS","source":"updateMealOptionsSessionContext","sessionId":1,"options":[{"optionNo":1,"title":"Ức gà áp chảo + măng tây + khoai lang","ingredients":["ức gà","măng tây","khoai lang"],"reason":"giàu protein, no lâu, ít dầu mỡ"},{"optionNo":2,"title":"Đậu hũ sốt nấm + su hào luộc + yến mạch mặn","ingredients":["đậu hũ","nấm","su hào","yến mạch"],"reason":"nhẹ bụng, giàu chất xơ, hợp bữa tối giảm cân"},{"optionNo":3,"title":"Trứng luộc + salad rau xanh + táo","ingredients":["trứng","xà lách","dưa leo","táo"],"reason":"đơn giản, ít calo, dễ chuẩn bị"}]}

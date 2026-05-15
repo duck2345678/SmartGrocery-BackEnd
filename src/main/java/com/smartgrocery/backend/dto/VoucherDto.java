@@ -21,4 +21,5 @@ public class VoucherDto {
     private BigDecimal minOrderAmount;
     private BigDecimal maxDiscountAmount;
     private LocalDateTime validUntil;
+    private Boolean active;
 }

@@ -48,6 +48,7 @@ public class UserNutritionController {
         profile.setHealthGoals(dto.getHealthGoals());
         profile.setDietaryPreference(dto.getDietaryPreference());
         profile.setAllergies(dto.getAllergies());
+        profile.setFoodConstraints(dto.getFoodConstraints());
         profile.setHeightCm(dto.getHeight() != null ? java.math.BigDecimal.valueOf(dto.getHeight()) : null);
         profile.setWeightKg(dto.getWeight() != null ? java.math.BigDecimal.valueOf(dto.getWeight()) : null);
         
@@ -68,6 +69,7 @@ public class UserNutritionController {
                 .healthGoals(entity.getHealthGoals())
                 .dietaryPreference(entity.getDietaryPreference())
                 .allergies(entity.getAllergies())
+                .foodConstraints(entity.getFoodConstraints())
                 .height(entity.getHeightCm() != null ? entity.getHeightCm().doubleValue() : null)
                 .weight(entity.getWeightKg() != null ? entity.getWeightKg().doubleValue() : null)
                 .bmi(entity.getBmi() != null ? entity.getBmi().doubleValue() : null)

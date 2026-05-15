@@ -9,10 +9,11 @@ import org.springframework.transaction.event.TransactionalEventListener;
 @RequiredArgsConstructor
 public class Pass2EventListener {
 
-    private final AiPass2StreamService aiPass2StreamService;
+    private final AiOrchestrationService aiOrchestrationService;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPass2Requested(Pass2RequestedEvent event) {
-        aiPass2StreamService.submitPass2Job(event.aiMessageId(), event.userId());
+        aiOrchestrationService.orchestrate(event.aiMessageId(), event.userId(), event.userMessage());
     }
+
 }

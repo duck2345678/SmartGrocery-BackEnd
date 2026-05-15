@@ -27,4 +27,5 @@ public class CartItemDto {
     private String imageUrl;
     private Integer stock;
     private LocalDateTime addedAt;
+    private Boolean allowSubstitution;
 }

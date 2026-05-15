@@ -58,11 +58,15 @@ public class OpenRouterClient {
      * @return AiCompletionResult chứa reply text, tokens used, model used
      */
     public Mono<AiCompletionResult> chatCompletion(String systemPrompt, List<Map<String, String>> messages, String modelName, Duration timeout) {
+        return chatCompletion(systemPrompt, messages, null, modelName, timeout);
+    }
+
+    public Mono<AiCompletionResult> chatCompletion(String systemPrompt, List<Map<String, String>> messages, List<ObjectNode> tools, String modelName, Duration timeout) {
         String finalModel = (modelName != null && !modelName.isBlank()) ? modelName : config.getModel();
         
         return Mono.defer(() -> {
             String apiKey = getNextApiKey();
-            ObjectNode body = buildRequestBody(systemPrompt, messages, finalModel);
+            ObjectNode body = buildRequestBody(systemPrompt, messages, tools, finalModel);
 
             return webClient.post()
                     .uri("/chat/completions")
@@ -98,16 +102,22 @@ public class OpenRouterClient {
     }
 
 
-    private ObjectNode buildRequestBody(String systemPrompt, List<Map<String, String>> messages, String modelName) {
+    private ObjectNode buildRequestBody(String systemPrompt, List<Map<String, String>> messages, List<ObjectNode> tools, String modelName) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", modelName);
         body.put("temperature", 0.3); // Set low temperature for strict instruction following
         body.put("max_tokens", 2048);
         
-        // Force JSON output
-        ObjectNode responseFormat = objectMapper.createObjectNode();
-        responseFormat.put("type", "json_object");
-        body.set("response_format", responseFormat);
+        // Only force JSON if no tools are provided, as tools use function calling
+        if (tools == null || tools.isEmpty()) {
+            ObjectNode responseFormat = objectMapper.createObjectNode();
+            responseFormat.put("type", "json_object");
+            body.set("response_format", responseFormat);
+        } else {
+            ArrayNode toolsArray = body.putArray("tools");
+            tools.forEach(toolsArray::add);
+            // Let the model decide whether to call a tool or reply
+        }
 
         ArrayNode messagesArray = body.putArray("messages");
 
@@ -121,7 +131,18 @@ public class OpenRouterClient {
         for (Map<String, String> msg : messages) {
             ObjectNode m = objectMapper.createObjectNode();
             m.put("role", msg.get("role"));
-            m.put("content", msg.get("content"));
+            m.put("content", msg.getOrDefault("content", ""));
+            if (msg.containsKey("tool_call_id")) {
+                m.put("tool_call_id", msg.get("tool_call_id"));
+                m.put("name", msg.get("name"));
+            }
+            if (msg.containsKey("tool_calls")) {
+                try {
+                    m.set("tool_calls", objectMapper.readTree(msg.get("tool_calls")));
+                } catch (Exception e) {
+                    log.warn("Failed to parse tool_calls for history: {}", e.getMessage());
+                }
+            }
             messagesArray.add(m);
         }
 
@@ -129,14 +150,61 @@ public class OpenRouterClient {
     }
 
 
+    public reactor.core.publisher.Flux<String> streamChatCompletion(String systemPrompt, List<Map<String, String>> messages, String modelName) {
+        String finalModel = (modelName != null && !modelName.isBlank()) ? modelName : config.getModel();
+        String apiKey = getNextApiKey();
+        ObjectNode body = buildRequestBody(systemPrompt, messages, null, finalModel);
+        body.put("stream", true);
+
+        return webClient.post()
+                .uri("/chat/completions")
+                .header("Authorization", "Bearer " + apiKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body.toString())
+                .retrieve()
+                .bodyToFlux(String.class)
+                .flatMap(chunk -> {
+                    if (chunk.equals("[DONE]") || chunk.contains("[DONE]")) {
+                        return reactor.core.publisher.Flux.empty();
+                    }
+                    try {
+                        // OpenRouter sends data: {...}
+                        String jsonPart = chunk.startsWith("data: ") ? chunk.substring(6) : chunk;
+                        if (jsonPart.trim().isEmpty()) return reactor.core.publisher.Flux.empty();
+                        
+                        JsonNode node = objectMapper.readTree(jsonPart);
+                        JsonNode choices = node.get("choices");
+                        if (choices != null && choices.isArray() && !choices.isEmpty()) {
+                            JsonNode delta = choices.get(0).get("delta");
+                            if (delta != null && delta.has("content")) {
+                                return reactor.core.publisher.Flux.just(delta.get("content").asText());
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.debug("Failed to parse stream chunk: {}", e.getMessage());
+                    }
+                    return reactor.core.publisher.Flux.empty();
+                })
+                .timeout(Duration.ofSeconds(60))
+                .onErrorResume(e -> {
+                    log.error("Streaming AI request failed: {}", e.getMessage());
+                    return reactor.core.publisher.Flux.empty();
+                });
+    }
+
     private AiCompletionResult parseResponse(String responseBody) {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             JsonNode choices = root.get("choices");
 
             String reply = "";
+            JsonNode toolCalls = null;
             if (choices != null && choices.isArray() && !choices.isEmpty()) {
-                reply = choices.get(0).path("message").path("content").asText("");
+                JsonNode msgNode = choices.get(0).path("message");
+                reply = msgNode.path("content").asText("");
+                if (msgNode.has("tool_calls")) {
+                    toolCalls = msgNode.get("tool_calls");
+                }
             }
 
             int tokensUsed = 0;
@@ -149,6 +217,7 @@ public class OpenRouterClient {
 
             return AiCompletionResult.builder()
                     .reply(reply)
+                    .toolCalls(toolCalls)
                     .tokensUsed(tokensUsed)
                     .modelUsed(model)
                     .success(true)
@@ -167,7 +236,7 @@ public class OpenRouterClient {
     /**
      * Thread-safe key rotation bằng AtomicInteger.
      */
-    private String getNextApiKey() {
+    public String getNextApiKey() {
         String[] keys = config.getApiKeys();
         if (keys.length == 0) {
             throw new IllegalStateException("No OpenRouter API keys configured");
@@ -188,6 +257,7 @@ public class OpenRouterClient {
     @lombok.AllArgsConstructor
     public static class AiCompletionResult {
         private String reply;
+        private JsonNode toolCalls;
         private int tokensUsed;
         private String modelUsed;
         private boolean success;

@@ -13,6 +13,7 @@ public class DataSeeder {
     @ConditionalOnProperty(name = "app.seeding.enabled", havingValue = "true", matchIfMissing = true)
     CommandLineRunner initDatabase(SeedService seedService) {
         return args -> {
+            seedService.migrateSchema();
             seedService.seedData();
         };
     }

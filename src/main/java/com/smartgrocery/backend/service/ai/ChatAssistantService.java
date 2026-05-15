@@ -2,6 +2,7 @@ package com.smartgrocery.backend.service.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartgrocery.backend.dto.*;
 import com.smartgrocery.backend.entity.*;
 import com.smartgrocery.backend.entity.graph.ProductNode;
 import com.smartgrocery.backend.repository.jpa.*;
@@ -49,8 +50,17 @@ public class ChatAssistantService {
     private final TransactionTemplate transactionTemplate;
     private final ApplicationEventPublisher eventPublisher;
     private final OpenRouterConfig config;
+    private final NeedExtractionService needExtractionService;
+    private final ProductCandidateService productCandidateService;
+    private final ShoppingActionValidator shoppingActionValidator;
+    private final AiAgentTools aiAgentTools;
+    private final IngredientComparisonService ingredientComparisonService;
+    private final UserProfileConstraintService userProfileConstraintService;
+    private final SemanticAllergyGuardService semanticAllergyGuardService;
+    private final MealCatalogService mealCatalogService;
 
-    private static final int SATISFACTION_PROMPT_INTERVAL = 5;
+
+
 
     @org.springframework.beans.factory.annotation.Value("${ai.chat.pass1-timeout-ms:12000}")
     private long pass1TimeoutMs;
@@ -142,6 +152,13 @@ public class ChatAssistantService {
     public ChatResponse processChat(Long userId, Long sessionId, String userMessage) {
         userMessage = userMessage == null ? "" : userMessage.trim();
         ChatRequestContext requestContext = prepareChatRequest(userId, sessionId, userMessage);
+        NeedExtractionService.NeedAnalysis needAnalysis = needExtractionService.analyze(userMessage);
+
+        if (isAllergyCorrection(userMessage)) {
+            ChatResponsePayload payload = buildAllergyCorrectionPayload(userId, userMessage);
+            SavedAssistantMessage saved = saveChatResult(requestContext.getSessionId(), userId, userMessage, payload, null);
+            return buildImmediateChatResponse(requestContext.getSessionId(), saved, payload);
+        }
 
         if (shouldAskClarificationForBareShoppingList(userMessage, requestContext.getSessionContext())) {
             List<MealOption> existingOptions = readMealOptions(requestContext.getSessionContext());
@@ -152,16 +169,32 @@ public class ChatAssistantService {
             return buildImmediateChatResponse(requestContext.getSessionId(), saved, payload);
         }
 
+        if (shouldAskClarificationForMixedNeeds(needAnalysis, userMessage)) {
+            ChatResponsePayload payload = buildMixedNeedClarificationPayload(needAnalysis);
+            SavedAssistantMessage saved = saveChatResult(requestContext.getSessionId(), userId, userMessage, payload, null);
+            return buildImmediateChatResponse(requestContext.getSessionId(), saved, payload);
+        }
+
         if (isMealOptionSelectionRequest(userMessage, requestContext.getSessionContext())) {
-            ChatResponsePayload payload = buildShoppingListFromSelectedMealPayload(userMessage, requestContext.getSessionContext());
+            ChatResponsePayload payload = buildShoppingListFromSelectedMealPayload(userId, userMessage, requestContext.getSessionContext());
             ensureMutableCollections(payload);
             SavedAssistantMessage saved = saveChatResult(requestContext.getSessionId(), userId, userMessage, payload, null);
             updateShoppingSessionContext(requestContext.getSessionId(), payload, List.of(), userMessage);
             return buildImmediateChatResponse(requestContext.getSessionId(), saved, payload);
         }
 
+        if (isMealAlternativeRequest(userMessage, requestContext.getSessionContext())) {
+            String effectiveMealPrompt = effectiveMealOptionsPrompt(userMessage, requestContext.getSessionContext());
+            int mealOptionsVariant = nextMealOptionsVariant(effectiveMealPrompt, requestContext.getSessionContext());
+            List<MealOption> options = filterMealOptionsByUserProfile(buildMealOptions(effectiveMealPrompt, mealOptionsVariant), userId);
+            ChatResponsePayload payload = buildMealOptionsPayload(options);
+            updateMealOptionsSessionContext(requestContext.getSessionId(), options, effectiveMealPrompt, mealOptionsVariant);
+            SavedAssistantMessage saved = saveChatResult(requestContext.getSessionId(), userId, userMessage, payload, null);
+            return buildImmediateChatResponse(requestContext.getSessionId(), saved, payload);
+        }
+
         if (isDirectProductShoppingRequest(userMessage)) {
-            ChatResponsePayload payload = buildShoppingListFromDirectProductRequest(userMessage);
+            ChatResponsePayload payload = buildShoppingListFromDirectProductRequest(userId, userMessage);
             ensureMutableCollections(payload);
             SavedAssistantMessage saved = saveChatResult(requestContext.getSessionId(), userId, userMessage, payload, null);
             updateShoppingSessionContext(requestContext.getSessionId(), payload, List.of(), userMessage);
@@ -169,7 +202,7 @@ public class ChatAssistantService {
         }
 
         if (isDirectMealShoppingListRequest(userMessage)) {
-            ChatResponsePayload payload = buildShoppingListFromDirectMealRequest(userMessage);
+            ChatResponsePayload payload = buildShoppingListFromDirectMealRequest(userId, userMessage);
             ensureMutableCollections(payload);
             SavedAssistantMessage saved = saveChatResult(requestContext.getSessionId(), userId, userMessage, payload, null);
             updateShoppingSessionContext(requestContext.getSessionId(), payload, List.of(), userMessage);
@@ -177,132 +210,28 @@ public class ChatAssistantService {
         }
 
         if (isMealIdeaRequest(userMessage)) {
-            List<MealOption> options = buildMealOptions(userMessage);
+            int mealOptionsVariant = nextMealOptionsVariant(userMessage, requestContext.getSessionContext());
+            List<MealOption> options = filterMealOptionsByUserProfile(buildMealOptions(userMessage, mealOptionsVariant), userId);
             ChatResponsePayload payload = buildMealOptionsPayload(options);
-            updateMealOptionsSessionContext(requestContext.getSessionId(), options, userMessage);
+            updateMealOptionsSessionContext(requestContext.getSessionId(), options, userMessage, mealOptionsVariant);
             SavedAssistantMessage saved = saveChatResult(requestContext.getSessionId(), userId, userMessage, payload, null);
             return buildImmediateChatResponse(requestContext.getSessionId(), saved, payload);
         }
 
-        // 1. Analyze Motivation (Intrinsic + Extrinsic)
-        MotivationContext motivation = analyzeMotivation(userId, userMessage);
-
-        // 2. Product Discovery (Search catalog based on message)
-        List<ProductNode> discoveredProducts = discoverRelevantProducts(userMessage);
-        discoveredProducts = filterAndRankDiscoveredProducts(userMessage, discoveredProducts);
-        motivation.setDiscoveredProducts(discoveredProducts);
-
-        // 3. Build MEMM System Prompt & Personalized HCI (AI Inference) ──
-        String systemPrompt = buildMemmSystemPrompt(requestContext.getUserName(), requestContext.getInteractionCount(), motivation);
-
-        OpenRouterClient.AiCompletionResult aiResult = null;
-        long startTime = System.currentTimeMillis();
-        try {
-            // Pass 1: Synchronous AI call with 12s timeout to avoid mobile timeout
-            aiResult = openRouterClient
-                    .chatCompletion(systemPrompt, requestContext.getConversationHistory(), config.getPass1Model(),
-                            Duration.ofMillis(Math.max(250, pass1TimeoutMs)))
-                    .block();
-        } catch (Exception e) {
-            log.warn("Pass 1 AI call failed or timed out after {}ms. Falling back to deterministic guard: {}", 
-                    (System.currentTimeMillis() - startTime), e.getMessage());
-        }
-
-        // STAGE 3: Trust-Building Response (Parse structured output)
-        ChatResponsePayload payload = aiResult != null && aiResult.isSuccess()
-                ? parseAiResponse(aiResult.getReply())
-                : buildFallbackPayload(userMessage, discoveredProducts);
-        ensureMutableCollections(payload);
-
-        // ── ENRICHMENT: Specialized Nutrition Logic ──
-        if ("MEAL_PLAN_AUTO".equals(payload.getIntentDetected()) && (payload.getProposedItems() == null || payload.getProposedItems().isEmpty())) {
-             // If AI wants to generate a meal plan but didn't provide items, trigger the specialized service
-             try {
-                 NutritionChatIntegrator.MealPlanChatResult mealPlan = nutritionChatIntegrator.generateMealPlanViaChat(userId, userMessage);
-                 if (mealPlan.isSuccess()) {
-                     payload.setReply(payload.getReply() + "\n\nTôi đã tạo một thực đơn 7 ngày mới cho bạn: " + mealPlan.getTitle());
-                     if (mealPlan.getTrustScore() != null) {
-                         payload.setTrustScore(mealPlan.getTrustScore().floatValue());
-                     }
-                     if (mealPlan.getExplanations() != null) {
-                         payload.getExplanations().putAll(mealPlan.getExplanations());
-                     }
-                     // Convert meal plan items to proposed items for the UI/chat
-                     for (NutritionChatIntegrator.ProposedItemForChat item : mealPlan.getProposedItems()) {
-                         payload.getProposedItems().add(ProposedItemDto.builder()
-                                 .productId(item.getProductId())
-                                 .quantity(item.getQuantity() != null ? item.getQuantity() : 1)
-                                 .reason(item.getReason() != null ? item.getReason() : ("Dành cho bữa " + item.getMealSlot() + " ngày " + item.getDayNo()))
-                                 .build());
-                     }
-                     if (mealPlan.getAllergyWarnings() != null && !mealPlan.getAllergyWarnings().isEmpty()) {
-                         payload.setReply(payload.getReply() + "\n" + String.join("\n", mealPlan.getAllergyWarnings()));
-                     }
-                 }
-             } catch (Exception e) {
-                 log.warn("Dynamic meal plan generation failed: {}", e.getMessage());
-              }
-        }
-
-        enforceProposedItemsCandidateScope(payload, userMessage, requestContext.getSessionContext(), discoveredProducts);
-        ensureProposedItemsForShoppingAction(payload, userMessage, requestContext.getSessionContext(), discoveredProducts);
-
-        // Filter out pantry staples if not explicitly requested
-        if (payload.getProposedItems() != null && !payload.getProposedItems().isEmpty()) {
-            enforceRecipeIngredientConsistency(payload, userMessage);
-            filterPantryStaples(payload.getProposedItems(), userMessage);
-            filterOutOfStock(payload.getProposedItems());
-            // ── CONTEXT QUALITY FILTERS ──
-            filterNonFoodForMealIntent(payload, userMessage);
-            filterExcludedIngredients(payload, userMessage);
-            filterLowQualityMealItems(payload, userMessage);
-            refillProposedItemsIfTooFew(payload, userMessage);
-            syncRecommendedIdsFromProposedItems(payload);
-        }
-        try {
-            filterRecommendedProductIds(payload, userMessage);
-        } catch (Exception e) {
-            log.warn("filterRecommendedProductIds failed; keeping current validated payload: {}", e.getMessage());
-        }
-        if (isMealSuggestionOnly(userMessage)) {
-            keepSuggestionAsCandidatesOnly(payload);
-        }
-        enforceReplyConsistency(payload, userMessage);
-        updateShoppingSessionContext(requestContext.getSessionId(), payload, discoveredProducts, userMessage);
-
-        // Ã¢â€â‚¬Ã¢â€â‚¬ STAGE 4: Expectation Management Ã¢â€â‚¬Ã¢â€â‚¬
-        SavedAssistantMessage saved = saveChatResult(requestContext.getSessionId(), userId, userMessage, payload, aiResult);
-
-        // Check if should trigger satisfaction prompt
-        boolean shouldAskSatisfaction = saved.getInteractionCount() % SATISFACTION_PROMPT_INTERVAL == 0
-                && saved.getInteractionCount() > 0;
+        // ── ASYNC AI AGENT ORCHESTRATION ──
+        SavedAssistantMessage saved = savePendingAssistantMessage(requestContext.getSessionId(), userId, userMessage);
+        
+        eventPublisher.publishEvent(new Pass2RequestedEvent(saved.getMessageId(), userId, userMessage));
 
         return ChatResponse.builder()
                 .sessionId(requestContext.getSessionId())
-                .aiMessageId(saved.getMessageId() != null ? String.valueOf(saved.getMessageId()) : null)
-                .reply(saved.getFallbackReply())
-                .recommendedProductIds(payload.getRecommendedProductIds())
-                .proposedItems(payload.getProposedItems())
-                .removeVariantIds(payload.getRemoveVariantIds())
-                .removeReasons(payload.getRemoveReasons())
-                .explanations(payload.getExplanations())
-                .trustScore(payload.getTrustScore())
-                .thoughtProcess(payload.getThoughtProcess())
-                .intentPrediction(payload.getIntentPrediction())
-                .replyStatus(saved.getReplyStatus())
-                .fallbackReply(saved.getFallbackReply())
-                .streamUrl(saved.getMessageId() != null
-                        && AiPass2StreamService.STATUS_PENDING_PASS2.equals(saved.getReplyStatus())
-                        ? "/api/v1/ai/chat/messages/" + saved.getMessageId() + "/stream"
-                        : null)
-                .uiActions(buildUiActions(payload))
-                .expectationPrompt(shouldAskSatisfaction ? "Gợi ý của AI có hữu ích không? Hãy đánh giá để AI phục vụ bạn tốt hơn!" : null)
+                .aiMessageId(String.valueOf(saved.getMessageId()))
+                .reply("Đang xử lý yêu cầu...")
+                .replyStatus(AiOrchestrationService.STATUS_PENDING_ORCHESTRATION)
+                .streamUrl("/api/v1/ai/chat/messages/" + saved.getMessageId() + "/stream")
+                .uiActions(new ArrayList<>())
                 .build();
     }
-
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    //  STAGE 1: MOTIVATION ANALYSIS
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     private MotivationContext analyzeMotivation(Long userId, String message) {
         MotivationContext ctx = new MotivationContext();
@@ -384,8 +313,8 @@ public class ChatAssistantService {
             String snapshotJson = buildValidatedActionSnapshot(userMessage, payload);
 
             String replyStatus = (aiResult != null && aiResult.isSuccess()) 
-                    ? AiPass2StreamService.STATUS_PENDING_PASS2 
-                    : AiPass2StreamService.STATUS_FALLBACK;
+                    ? AiOrchestrationService.STATUS_PENDING_ORCHESTRATION 
+                    : AiOrchestrationService.STATUS_FALLBACK;
 
             ChatMessage aiMsg = ChatMessage.builder()
                     .session(session).userId(userId).role("ASSISTANT")
@@ -398,8 +327,8 @@ public class ChatAssistantService {
                     .validatedActionSnapshot(snapshotJson)
                     .build();
             messageRepository.save(aiMsg);
-            if (AiPass2StreamService.STATUS_PENDING_PASS2.equals(replyStatus)) {
-                eventPublisher.publishEvent(new Pass2RequestedEvent(aiMsg.getId(), userId));
+            if (AiOrchestrationService.STATUS_PENDING_ORCHESTRATION.equals(replyStatus)) {
+                eventPublisher.publishEvent(new Pass2RequestedEvent(aiMsg.getId(), userId, userMessage));
             }
 
             return SavedAssistantMessage.builder()
@@ -415,7 +344,7 @@ public class ChatAssistantService {
                     .messageId(null)
                     .interactionCount(0)
                     .fallbackReply(buildFallbackReply(payload))
-                    .replyStatus(AiPass2StreamService.STATUS_FALLBACK)
+                    .replyStatus(AiOrchestrationService.STATUS_FALLBACK)
                     .build();
         }
     }
@@ -470,58 +399,14 @@ public class ChatAssistantService {
             snapshot.put("explanations", payload.getExplanations());
             snapshot.put("trustScore", payload.getTrustScore());
             snapshot.put("validatedAt", LocalDateTime.now().toString());
-            return objectMapper.writeValueAsString(snapshot);
+            return toJson(snapshot);
         } catch (Exception e) {
             log.warn("Could not serialize validated AI action snapshot: {}", e.getMessage());
             return "{}";
         }
     }
 
-    private List<ProductNode> discoverRelevantProducts(String message) {
-        try {
-            String cleanMessage = normalizeText(message.replaceAll("\\p{Punct}", " "));
-            
-            // Check for recipe/fridge rescue intent
-            boolean isRecipeIntent = cleanMessage.contains("tu lanh")
-                    || cleanMessage.contains("nau")
-                    || cleanMessage.contains("mon")
-                    || cleanMessage.contains("con");
 
-            String[] words = cleanMessage.split("\\s+");
-            String query = Arrays.stream(words)
-                    .filter(w -> !w.isBlank() && !STOP_WORDS.contains(w))
-                    .collect(Collectors.joining(" "));
-
-            if (query.isBlank()) {
-                query = message;
-            }
-
-            List<ProductNode> results = productNodeRepository.searchFullText(query);
-            
-            if (isRecipeIntent && requiresBeef(cleanMessage)) {
-                results = new ArrayList<>(results);
-                results.addAll(productNodeRepository.searchFullText("bo beef steak thit bo than bo bap bo"));
-            } else if (isRecipeIntent && requiresPork(cleanMessage)) {
-                results = new ArrayList<>(results);
-                results.addAll(productNodeRepository.searchFullText("heo lon pork thit heo nac dam ba roi suon"));
-            } else if (isRecipeIntent && requiresChicken(cleanMessage)) {
-                results = new ArrayList<>(results);
-                results.addAll(productNodeRepository.searchFullText("ga chicken thit ga uc ga dui ga"));
-            }
-
-            // If it's a recipe intent, proactively fetch common ingredients to avoid hallucination
-            if (isRecipeIntent && !requiresBeef(cleanMessage) && !requiresPork(cleanMessage) && !requiresChicken(cleanMessage)) {
-                results = new ArrayList<>(results);
-                // Search for common protein sources to give AI real options
-                results.addAll(productNodeRepository.searchFullText("thit ca trung dau"));
-            }
-
-            return results;
-        } catch (Exception e) {
-            log.warn("Product discovery failed: {}", e.getMessage());
-            return List.of();
-        }
-    }
 
     private List<ProductNode> filterAndRankDiscoveredProducts(String userMessage, List<ProductNode> discovered) {
         if (!isMealOrDietIntent(userMessage)) {
@@ -695,7 +580,6 @@ public class ChatAssistantService {
     private String buildInventorySummary(List<ProductNode> discovered) {
         try {
             List<Product> stapleProducts = productRepository.findTop15ByStatusAndIsStapleTrueOrderByIdAsc("ACTIVE");
-            List<Product> catalogSample = productRepository.findTop20ByStatusOrderByIdAsc("ACTIVE");
             LinkedHashSet<Long> summaryProductIds = new LinkedHashSet<>();
             if (discovered != null) {
                 discovered.stream()
@@ -707,7 +591,6 @@ public class ChatAssistantService {
             boolean includeGenericCatalog = summaryProductIds.isEmpty();
             if (includeGenericCatalog) {
                 stapleProducts.stream().map(Product::getId).forEach(summaryProductIds::add);
-                catalogSample.stream().map(Product::getId).forEach(summaryProductIds::add);
             }
             Map<Long, ProductInfo> stockMap = buildProductInfoMap(new ArrayList<>(summaryProductIds));
 
@@ -728,30 +611,13 @@ public class ChatAssistantService {
             }
 
             if (includeGenericCatalog) {
-            summary.append("\nNHU YEU PHAM & GIA VI:\n");
-            stapleProducts.forEach(p -> {
-                        ProductInfo info = stockMap.getOrDefault(p.getId(), new ProductInfo(0, "sản phẩm"));
-                        String stockStr = info.stock > 0 ? String.valueOf(info.stock) : "0 (HET HANG)";
-                        summary.append(String.format("- ID:%d | %s | Don vi: %s | Ton kho: %s\n",
-                            p.getId(), p.getName(), info.unit, stockStr));
-                    });
-            
-            summary.append("\nDANH MUC KHAC:\n");
-            Set<Long> discoveredIds = discovered == null
-                    ? Set.of()
-                    : discovered.stream()
-                            .map(ProductNode::getProductId)
-                            .filter(Objects::nonNull)
-                            .collect(Collectors.toSet());
-            catalogSample.stream()
-                    .filter(p -> !discoveredIds.contains(p.getId()))
-                    .forEach(p -> {
-                        ProductInfo info = stockMap.getOrDefault(p.getId(), new ProductInfo(0, "sản phẩm"));
-                        String stockStr = info.stock > 0 ? String.valueOf(info.stock) : "0 (HET HANG)";
-                        summary.append(String.format("- ID:%d | %s | Don vi: %s | Ton kho: %s\n",
-                            p.getId(), p.getName(), info.unit, stockStr));
-                    });
-
+                summary.append("\nNHU YEU PHAM & GIA VI:\n");
+                stapleProducts.forEach(p -> {
+                    ProductInfo info = stockMap.getOrDefault(p.getId(), new ProductInfo(0, "sản phẩm"));
+                    String stockStr = info.stock > 0 ? String.valueOf(info.stock) : "0 (HET HANG)";
+                    summary.append(String.format("- ID:%d | %s | Don vi: %s | Ton kho: %s\n",
+                        p.getId(), p.getName(), info.unit, stockStr));
+                });
             }
 
             summary.append("\nLUU Y QUAN TRONG: San pham ton kho = 0 thi khong dua vao proposedItems.\n");
@@ -801,10 +667,6 @@ public class ChatAssistantService {
         return infoMap;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    //  STAGE 2: BUILD MEMM SYSTEM PROMPT
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-
     private String buildMemmSystemPrompt(String userName, int interactionCount, MotivationContext ctx) {
         if (this.memmPromptTemplate == null) {
             return "ERROR: PROMPT TEMPLATE NOT LOADED";
@@ -815,14 +677,102 @@ public class ChatAssistantService {
                 .replace("{{INTERACTION_COUNT}}", String.valueOf(interactionCount))
                 .replace("{{BMI}}", ctx.getBmi() != null ? String.valueOf(ctx.getBmi()) : "Không rõ")
                 .replace("{{HEALTH_GOALS}}", ctx.getHealthGoals() != null ? ctx.getHealthGoals() : "Không có")
+                .replace("{{DIETARY_PREFERENCE}}", ctx.getDietaryPreference() != null ? ctx.getDietaryPreference() : "Không có")
                 .replace("{{ALLERGIES}}", ctx.getAllergies() != null ? ctx.getAllergies() : "Không có")
                 .replace("{{INVENTORY_SUMMARY}}", buildInventorySummary(ctx.getDiscoveredProducts()))
                 .replace("{{CART_CONTEXT}}", ctx.getCartContext() != null ? ctx.getCartContext() : "Trống");
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    //  STAGE 3: PARSE TRUST-BUILDING RESPONSE
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    private String appendAgentSessionContext(String basePrompt, String sessionContext) {
+        List<MealOption> options = readMealOptions(sessionContext);
+        if (options.isEmpty()) {
+            return basePrompt + "\n\nAGENT WORKING MEMORY:\n- lastMealOptions: []\n";
+        }
+
+        String optionsText = options.stream()
+                .map(option -> option.getOptionNo() + ". " + option.getTitle()
+                        + " | ingredients: " + String.join(", ", option.getIngredients())
+                        + " | reason: " + (option.getReason() != null ? option.getReason() : ""))
+                .collect(Collectors.joining("\n"));
+        return basePrompt
+                + "\n\nAGENT WORKING MEMORY:\n"
+                + "- lastMealOptions are currently visible to the user. If the user asks about one option, answer using these exact titles and ingredients.\n"
+                + "- If the user asks for another set of meals, call suggest_meals and replace this memory.\n"
+                + "- If the user selects an option, call select_meal with the exact optionNo.\n"
+                + optionsText + "\n";
+    }
+
+    private List<MealOption> parseMealOptionsFromToolArgs(String arguments) {
+        if (arguments == null || arguments.isBlank()) {
+            return List.of();
+        }
+        try {
+            JsonNode root = objectMapper.readTree(arguments);
+            JsonNode optionsNode = root.path("options");
+            if (!optionsNode.isArray()) {
+                return List.of();
+            }
+            List<MealOption> options = new ArrayList<>();
+            int fallbackNo = 1;
+            for (JsonNode optionNode : optionsNode) {
+                String title = optionNode.path("title").asText("").trim();
+                List<String> ingredients = new ArrayList<>();
+                JsonNode ingredientNodes = optionNode.path("ingredients");
+                if (ingredientNodes.isArray()) {
+                    ingredientNodes.forEach(node -> {
+                        String ingredient = node.asText("").trim();
+                        if (!ingredient.isBlank()) {
+                            ingredients.add(ingredient);
+                        }
+                    });
+                }
+                if (title.isBlank() || ingredients.isEmpty()) {
+                    continue;
+                }
+                int optionNo = optionNode.path("optionNo").asInt(fallbackNo);
+                options.add(MealOption.builder()
+                        .optionNo(optionNo > 0 ? optionNo : fallbackNo)
+                        .title(title)
+                        .ingredients(ingredients.stream().distinct().toList())
+                        .reason(optionNode.path("reason").asText("phù hợp với ngữ cảnh hiện tại"))
+                        .build());
+                fallbackNo++;
+                if (options.size() >= 5) {
+                    break;
+                }
+            }
+            return options;
+        } catch (Exception e) {
+            log.warn("Could not parse suggest_meals arguments: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private void mergeSelectedMealToolPayload(ChatResponsePayload payload, ChatResponsePayload selectedMealToolPayload) {
+        if (selectedMealToolPayload == null) {
+            return;
+        }
+        ensureMutableCollections(selectedMealToolPayload);
+        if (payload.getProposedItems() == null || payload.getProposedItems().isEmpty()) {
+            payload.setProposedItems(new ArrayList<>(selectedMealToolPayload.getProposedItems()));
+        }
+        if (payload.getRecommendedProductIds() == null || payload.getRecommendedProductIds().isEmpty()) {
+            payload.setRecommendedProductIds(new ArrayList<>(selectedMealToolPayload.getRecommendedProductIds()));
+        }
+        if (payload.getExplanations() == null || payload.getExplanations().isEmpty()) {
+            payload.setExplanations(new HashMap<>(selectedMealToolPayload.getExplanations()));
+        }
+        if (payload.getIntentDetected() == null || "CHAT".equals(payload.getIntentDetected())) {
+            payload.setIntentDetected(selectedMealToolPayload.getIntentDetected());
+        }
+        if (payload.getReply() == null || payload.getReply().isBlank()
+                || normalizeText(payload.getReply()).contains("xin loi")) {
+            payload.setReply(selectedMealToolPayload.getReply());
+        }
+        if (payload.getTrustScore() == null) {
+            payload.setTrustScore(selectedMealToolPayload.getTrustScore());
+        }
+    }
 
     private ChatResponsePayload parseAiResponse(String aiReply) {
         ChatResponsePayload payload = new ChatResponsePayload();
@@ -837,7 +787,7 @@ public class ChatAssistantService {
         // Try to extract JSON from response
         String jsonStr = extractJson(aiReply);
         if (jsonStr == null) {
-            // Response is plain text Ã¢â‚¬â€ still clean IDs before returning
+            // Response is plain text — still clean IDs before returning
             payload.setReply(stripProductIds(aiReply));
             return payload;
         }
@@ -1034,6 +984,18 @@ public class ChatAssistantService {
     }
 
     private ChatResponsePayload buildMealOptionsPayload(List<MealOption> options) {
+        if (options == null || options.isEmpty()) {
+            ChatResponsePayload emptyPayload = new ChatResponsePayload();
+            emptyPayload.setIntentDetected("MEAL_OPTIONS");
+            emptyPayload.setTrustScore(70f);
+            emptyPayload.setRecommendedProductIds(new ArrayList<>());
+            emptyPayload.setProposedItems(new ArrayList<>());
+            emptyPayload.setRemoveVariantIds(new ArrayList<>());
+            emptyPayload.setRemoveReasons(new HashMap<>());
+            emptyPayload.setExplanations(new HashMap<>());
+            emptyPayload.setReply("Mình chưa tìm được thực đơn phù hợp sau khi áp dụng các ràng buộc trong hồ sơ của bạn. Bạn có thể nới điều kiện hoặc nói rõ món muốn ăn hơn không?");
+            return emptyPayload;
+        }
         ChatResponsePayload payload = new ChatResponsePayload();
         payload.setIntentDetected("MEAL_OPTIONS");
         payload.setTrustScore(82f);
@@ -1054,7 +1016,170 @@ public class ChatAssistantService {
         return payload;
     }
 
-    private List<MealOption> buildMealOptions(String userMessage) {
+    private boolean shouldAskClarificationForMixedNeeds(NeedExtractionService.NeedAnalysis analysis, String userMessage) {
+        if (analysis == null || isShoppingListRequest(userMessage)) {
+            return false;
+        }
+        long actionableNeeds = analysis.needs().stream()
+                .filter(need -> need != NeedExtractionService.Need.DIRECT_PRODUCT)
+                .filter(need -> need != NeedExtractionService.Need.DIRECT_RECIPE)
+                .count();
+        return actionableNeeds >= 2;
+    }
+
+    private ChatResponsePayload buildMixedNeedClarificationPayload(NeedExtractionService.NeedAnalysis analysis) {
+        ChatResponsePayload payload = new ChatResponsePayload();
+        payload.setIntentDetected("MIXED_NEED_CLARIFICATION");
+        payload.setTrustScore(76f);
+        payload.setRecommendedProductIds(new ArrayList<>());
+        payload.setProposedItems(new ArrayList<>());
+        payload.setRemoveVariantIds(new ArrayList<>());
+        payload.setRemoveReasons(new HashMap<>());
+        payload.setExplanations(new HashMap<>());
+        payload.setRecommendedProductIds(productCandidateService.findCandidatesForNeeds(analysis).stream()
+                .map(Product::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .limit(8)
+                .collect(Collectors.toCollection(ArrayList::new)));
+
+        List<String> choices = new ArrayList<>();
+        if (analysis.hasNeed(NeedExtractionService.Need.FOOD_MEAL)) {
+            choices.add("gợi ý món ăn nhanh");
+        }
+        if (analysis.hasNeed(NeedExtractionService.Need.DRINK)) {
+            choices.add("gợi ý đồ uống giải khát");
+        }
+        if (analysis.hasNeed(NeedExtractionService.Need.SNACK_SWEET)) {
+            choices.add("gợi ý đồ ngọt hoặc ăn vặt");
+        }
+        if (analysis.hasNeed(NeedExtractionService.Need.HOUSEHOLD_CLEANING)) {
+            choices.add("tạo danh sách đồ vệ sinh nhà cửa");
+        }
+        if (analysis.hasNeed(NeedExtractionService.Need.DISHWASHING)) {
+            choices.add("tìm nước rửa chén");
+        }
+        if (analysis.hasNeed(NeedExtractionService.Need.LAUNDRY)) {
+            choices.add("tìm nước giặt");
+        }
+
+        String budgetNote = analysis.hasConstraint(NeedExtractionService.Constraint.LOW_BUDGET)
+                ? " Mình sẽ ưu tiên phương án tiết kiệm."
+                : "";
+        payload.setReply("Mình thấy bạn đang nhắc nhiều nhu cầu cùng lúc: "
+                + String.join(", ", choices)
+                + "." + budgetNote
+                + " Bạn muốn mình xử lý mục nào trước?");
+        return payload;
+    }
+
+    private int nextMealOptionsVariant(String userMessage, String sessionContext) {
+        Map<String, Object> context = readSessionContextMap(sessionContext);
+        String currentGoal = needExtractionService.mealGoalSignature(userMessage);
+        String lastGoal = context.get("lastMealOptionsGoal") != null
+                ? String.valueOf(context.get("lastMealOptionsGoal"))
+                : "";
+        int lastVariant = 0;
+        Object rawVariant = context.get("lastMealOptionsVariant");
+        if (rawVariant instanceof Number number) {
+            lastVariant = number.intValue();
+        } else if (rawVariant != null) {
+            try {
+                lastVariant = Integer.parseInt(String.valueOf(rawVariant));
+            } catch (NumberFormatException ignored) {
+                lastVariant = 0;
+            }
+        }
+        return currentGoal.equals(lastGoal) ? Math.floorMod(lastVariant + 1, 3) : 0;
+    }
+
+    private String mealGoalSignature(String userMessage) {
+        return needExtractionService.mealGoalSignature(userMessage);
+    }
+
+    private List<MealOption> filterMealOptionsByUserProfile(List<MealOption> options, Long userId) {
+        Set<String> avoidanceTokens = readUserAllergyTokens(userId);
+        if (options == null || options.isEmpty() || avoidanceTokens.isEmpty()) {
+            return options == null ? List.of() : options;
+        }
+        List<MealOption> safeOptions = options.stream()
+                .filter(option -> !mealOptionViolatesProfile(option, avoidanceTokens))
+                .toList();
+        if (safeOptions.size() == options.size()) {
+            return options;
+        }
+        List<MealOption> renumbered = new ArrayList<>();
+        for (int i = 0; i < safeOptions.size(); i++) {
+            MealOption option = safeOptions.get(i);
+            renumbered.add(MealOption.builder()
+                    .optionNo(i + 1)
+                    .title(option.getTitle())
+                    .ingredients(option.getIngredients())
+                    .reason(option.getReason())
+                    .build());
+        }
+        return renumbered;
+    }
+
+    private boolean mealOptionViolatesProfile(MealOption option, Set<String> avoidanceTokens) {
+        if (option == null) {
+            return true;
+        }
+        String optionText = String.join(" ",
+                option.getTitle() != null ? option.getTitle() : "",
+                option.getReason() != null ? option.getReason() : "",
+                option.getIngredients() != null ? String.join(" ", option.getIngredients()) : "");
+        return violatesAllergy(optionText, avoidanceTokens);
+    }
+
+    private boolean isMealAlternativeRequest(String userMessage, String sessionContext) {
+        if (readMealOptions(sessionContext).isEmpty()) {
+            return false;
+        }
+        String n = normalizeText(userMessage);
+        return n.contains("khac") || n.contains("doi mon") || n.contains("thay doi") || 
+               n.contains("alternative") || n.contains("them") || n.contains("nua") || 
+               n.contains("khong thich") || n.contains("khong ung");
+    }
+
+    private String effectiveMealOptionsPrompt(String userMessage, String sessionContext) {
+        if (!isMealAlternativeRequest(userMessage, sessionContext)) {
+            return userMessage;
+        }
+        Object lastGoal = readSessionContextMap(sessionContext).get("lastMealOptionsGoal");
+        String goal = lastGoal != null ? String.valueOf(lastGoal) : "";
+        return switch (goal) {
+            case "MEAL_WITH_COFFEE" -> "gợi ý món ăn đi kèm cà phê";
+            case "BREAKFAST" -> "gợi ý bữa sáng";
+            case "DINNER" -> "gợi ý bữa tối";
+            case "VEGETARIAN" -> "gợi ý món ăn chay";
+            case "HEALTHY" -> "gợi ý món ăn healthy";
+            default -> userMessage;
+        };
+    }
+
+    private List<MealOption> buildMealOptions(String userMessage, int variant) {
+        try {
+            List<MealCatalogService.CatalogMealOption> catalogOptions = mealCatalogService.suggestMealOptions(
+                    userMessage,
+                    variant,
+                    Set.of(),
+                    3
+            );
+            if (catalogOptions != null && !catalogOptions.isEmpty()) {
+                return catalogOptions.stream()
+                        .map(option -> MealOption.builder()
+                                .optionNo(option.optionNo())
+                                .title(option.title())
+                                .ingredients(option.ingredients())
+                                .reason(option.reason())
+                                .build())
+                        .toList();
+            }
+        } catch (Exception e) {
+            log.warn("Meal catalog suggestion failed, using deterministic fallback: {}", e.getMessage());
+        }
+
         String n = normalizeText(userMessage);
         if (n.contains("bua sang") || n.contains("an sang")) {
             return List.of(
@@ -1102,6 +1227,53 @@ public class ChatAssistantService {
             );
         }
 
+        int normalizedVariant = Math.floorMod(variant, 3);
+        if (normalizedVariant == 1) {
+            return List.of(
+                    MealOption.builder()
+                            .optionNo(1)
+                            .title("Yến mạch sữa hạnh nhân + blueberry")
+                            .ingredients(List.of("yến mạch", "sữa hạnh nhân", "blueberry"))
+                            .reason("nhẹ bụng, hợp khi uống cùng cà phê và vẫn đủ chất xơ")
+                            .build(),
+                    MealOption.builder()
+                            .optionNo(2)
+                            .title("Trứng luộc + khoai lang + dưa leo")
+                            .ingredients(List.of("trứng", "khoai lang", "dưa leo"))
+                            .reason("no lâu, ít dầu mỡ, không bị quá ngọt khi đi kèm cà phê")
+                            .build(),
+                    MealOption.builder()
+                            .optionNo(3)
+                            .title("Đậu hũ áp chảo + nấm + rau xanh")
+                            .ingredients(List.of("đậu hũ", "nấm", "rau xanh"))
+                            .reason("protein thực vật, nhẹ bụng, đổi vị so với món gà")
+                            .build()
+            );
+        }
+
+        if (normalizedVariant == 2) {
+            return List.of(
+                    MealOption.builder()
+                            .optionNo(1)
+                            .title("Salad trứng + xà lách + dưa leo")
+                            .ingredients(List.of("trứng", "xà lách", "dưa leo"))
+                            .reason("tươi, nhanh, phù hợp khi muốn ăn nhẹ cùng cà phê")
+                            .build(),
+                    MealOption.builder()
+                            .optionNo(2)
+                            .title("Khoai lang + sữa hạnh nhân + táo")
+                            .ingredients(List.of("khoai lang", "sữa hạnh nhân", "táo"))
+                            .reason("có tinh bột tốt và vị ngọt tự nhiên, không quá nặng bụng")
+                            .build(),
+                    MealOption.builder()
+                            .optionNo(3)
+                            .title("Đậu hũ sốt nấm + su hào luộc")
+                            .ingredients(List.of("đậu hũ", "nấm", "su hào"))
+                            .reason("ấm bụng, ít calo, dùng được cho bữa nhẹ hoặc bữa tối")
+                            .build()
+            );
+        }
+
         return List.of(
                 MealOption.builder()
                         .optionNo(1)
@@ -1134,7 +1306,7 @@ public class ChatAssistantService {
 
         String working = text;
 
-        // 1. Remove Markdown-style product links: [**Name**](product:123) Ã¢â€ â€™ **Name**
+        // 1. Remove Markdown-style product links: [**Name**](product:123) → **Name**
         working = working.replaceAll("\\[([^\\]]*?)\\]\\(product:\\d+\\)", "$1");
 
         // 2. Remove standalone product link fragments: (product:123)
@@ -1175,8 +1347,8 @@ public class ChatAssistantService {
         }
 
         LinkedHashSet<Long> candidateIds = new LinkedHashSet<>();
-        if (!isModificationRequest(userMessage)) {
-            readShoppingCandidateIds(sessionContext).forEach(candidateIds::add);
+        if (shouldUsePreviousShoppingCandidates(userMessage, sessionContext)) {
+            readActiveShoppingCandidateIds(sessionContext).forEach(candidateIds::add);
         }
         if (payload.getRecommendedProductIds() != null) {
             payload.getRecommendedProductIds().stream()
@@ -1238,7 +1410,7 @@ public class ChatAssistantService {
             return;
         }
 
-        Set<Long> allowedIds = buildAllowedShoppingCandidateIds(payload, sessionContext, discoveredProducts);
+        Set<Long> allowedIds = buildAllowedShoppingCandidateIds(payload, userMessage, sessionContext, discoveredProducts);
         if (allowedIds.isEmpty()) {
             payload.setProposedItems(new ArrayList<>());
             payload.setRecommendedProductIds(new ArrayList<>());
@@ -1263,11 +1435,14 @@ public class ChatAssistantService {
 
     private Set<Long> buildAllowedShoppingCandidateIds(
             ChatResponsePayload payload,
+            String userMessage,
             String sessionContext,
             List<ProductNode> discoveredProducts
     ) {
         LinkedHashSet<Long> ids = new LinkedHashSet<>();
-        readShoppingCandidateIds(sessionContext).forEach(ids::add);
+        if (shouldUsePreviousShoppingCandidates(userMessage, sessionContext)) {
+            readActiveShoppingCandidateIds(sessionContext).forEach(ids::add);
+        }
         if (payload.getRecommendedProductIds() != null) {
             payload.getRecommendedProductIds().stream()
                     .filter(Objects::nonNull)
@@ -1284,23 +1459,29 @@ public class ChatAssistantService {
         return findActiveStockedProductIds(ids);
     }
 
-    private boolean isShoppingListRequest(String userMessage) {
+    private boolean shouldUsePreviousShoppingCandidates(String userMessage, String sessionContext) {
+        if (readActiveShoppingCandidateIds(sessionContext).isEmpty()) {
+            return false;
+        }
         String n = normalizeText(userMessage);
-        return n.contains("tao danh sach")
-                || n.contains("lap danh sach")
-                || n.contains("chot danh sach")
-                || n.contains("danh sach mua")
-                || n.contains("shopping list")
-                || n.contains("list mua")
-                || n.contains("mua sam")
-                || n.contains("mua do")
-                || n.contains("mua nguyen lieu")
-                || n.contains("them vao gio")
-                || n.contains("bo vao gio")
-                || n.contains("cho vao gio")
-                || n.contains("them tat ca")
-                || n.contains("chot mon")
-                || n.contains("chot bua");
+        boolean confirmation = n.equals("ok")
+                || n.equals("okay")
+                || n.equals("dong y")
+                || n.equals("co")
+                || n.equals("tao di")
+                || n.equals("chot")
+                || n.equals("chot danh sach")
+                || n.equals("them het")
+                || n.equals("them tat ca")
+                || n.contains("chot danh sach nay")
+                || n.contains("them het vao gio")
+                || n.contains("them tat ca vao gio")
+                || n.contains("tao danh sach cho cac nguyen lieu nay");
+        return confirmation || isModificationRequest(userMessage);
+    }
+
+    private boolean isShoppingListRequest(String userMessage) {
+        return needExtractionService.isShoppingListRequest(userMessage);
     }
 
     private boolean isDirectMealShoppingListRequest(String userMessage) {
@@ -1308,8 +1489,12 @@ public class ChatAssistantService {
         if (!isShoppingListRequest(userMessage)) {
             return false;
         }
+        if (needExtractionService.recipeKey(userMessage).isPresent()) {
+            return true;
+        }
         return n.contains("mon ")
                 || n.contains("nguyen lieu")
+                || n.contains("cong thuc")
                 || !extractDirectIngredientTerms(userMessage).isEmpty();
     }
 
@@ -1329,14 +1514,19 @@ public class ChatAssistantService {
 
     private boolean isMealIdeaRequest(String userMessage) {
         String n = normalizeText(userMessage);
-        if (!isMealOrDietIntent(userMessage) || isMealOptionSelectionRequest(userMessage, null)) {
+        if (isMealOptionSelectionRequest(userMessage, null)) {
             return false;
         }
         if (n.contains("danh sach mua") || n.contains("mua sam")
                 || n.contains("them vao gio") || n.contains("cho vao gio") || n.contains("bo vao gio")) {
             return false;
         }
-        return n.contains("goi y")
+        boolean coffeePairingIntent = isCoffeeMealPairingIntent(userMessage);
+        if (!isMealOrDietIntent(userMessage) && !coffeePairingIntent) {
+            return false;
+        }
+        return coffeePairingIntent
+                || n.contains("goi y")
                 || n.contains("suggest")
                 || n.contains("tao bua")
                 || n.contains("tao mon")
@@ -1349,6 +1539,10 @@ public class ChatAssistantService {
                 || n.contains("an toi")
                 || n.contains("an sang")
                 || n.contains("an trua");
+    }
+
+    private boolean isCoffeeMealPairingIntent(String userMessage) {
+        return needExtractionService.isCoffeeMealPairingIntent(userMessage);
     }
 
     private boolean isMealOptionSelectionRequest(String userMessage, String sessionContext) {
@@ -1391,7 +1585,7 @@ public class ChatAssistantService {
         return OptionalInt.empty();
     }
 
-    private ChatResponsePayload buildShoppingListFromDirectProductRequest(String userMessage) {
+    private ChatResponsePayload buildShoppingListFromDirectProductRequest(Long userId, String userMessage) {
         ChatResponsePayload payload = new ChatResponsePayload();
         payload.setIntentDetected("DIRECT_PRODUCT_SHOPPING");
         payload.setTrustScore(85f);
@@ -1426,6 +1620,13 @@ public class ChatAssistantService {
         }
 
         syncRecommendedIdsFromProposedItems(payload);
+        boolean hadAvailableItemsBeforeProfileFilter = !payload.getProposedItems().isEmpty();
+        enforceUserProfileAllergies(payload, userId);
+        if (hadAvailableItemsBeforeProfileFilter && payload.getProposedItems().isEmpty()) {
+            payload.setTrustScore(65f);
+            payload.setReply("Sản phẩm bạn yêu cầu trùng với dị ứng hoặc ràng buộc ăn uống trong hồ sơ nên mình không thêm vào danh sách.");
+            return payload;
+        }
         if (payload.getProposedItems().isEmpty()) {
             payload.setTrustScore(65f);
             payload.setReply("Mình tìm thấy sản phẩm bạn yêu cầu nhưng hiện chưa có hàng. Bạn muốn mình gợi ý sản phẩm thay thế không?");
@@ -1436,143 +1637,18 @@ public class ChatAssistantService {
     }
 
     private List<Product> findExplicitlyRequestedProducts(String userMessage) {
-        List<String> requestedPhrases = extractDirectProductPhrases(userMessage);
-        if (requestedPhrases.isEmpty()) {
-            return List.of();
-        }
-
-        List<Product> activeProducts;
-        try {
-            activeProducts = productRepository.findActiveWithCategory();
-        } catch (Exception e) {
-            log.warn("Could not load active products for direct product shopping: {}", e.getMessage());
-            return List.of();
-        }
-
-        LinkedHashMap<Long, Product> matchedProducts = new LinkedHashMap<>();
-        for (String phrase : requestedPhrases) {
-            activeProducts.stream()
-                    .filter(product -> product.getId() != null)
-                    .filter(product -> directProductMatchesPhrase(product, phrase))
-                    .max(Comparator.comparingInt(product -> directProductMatchScore(product, phrase)))
-                    .ifPresent(product -> matchedProducts.putIfAbsent(product.getId(), product));
-        }
-        return matchedProducts.values().stream()
-                .limit(12)
-                .toList();
+        return productCandidateService.findExplicitlyRequestedProducts(userMessage);
     }
 
     private List<String> extractDirectProductPhrases(String userMessage) {
-        String n = normalizeText((userMessage == null ? "" : userMessage)
-                .replace(",", " va ")
-                .replace(";", " va ")
-                .replace("/", " va "));
-        if (n.isBlank()) {
-            return List.of();
-        }
-
-        String requestText = n;
-        for (String prefix : List.of(
-                "tao danh sach mua sam cho",
-                "tao danh sach mua hang cho",
-                "tao danh sach mua do cho",
-                "lap danh sach mua sam cho",
-                "lap danh sach mua hang cho",
-                "danh sach mua sam cho",
-                "danh sach mua hang cho",
-                "tao list mua do cho",
-                "list mua do cho",
-                "mua sam cho",
-                "mua do cho",
-                "mua cho",
-                "them vao gio",
-                "bo vao gio",
-                "cho vao gio")) {
-            if (requestText.contains(prefix)) {
-                requestText = requestText.substring(requestText.indexOf(prefix) + prefix.length()).trim();
-                break;
-            }
-        }
-
-        for (String generic : List.of(
-                "tao", "lap", "danh sach", "mua sam", "mua hang", "mua do",
-                "shopping list", "list mua", "cho", "toi", "minh", "dum",
-                "giup", "ho", "nhe", "nha", "can", "cac san pham", "san pham")) {
-            requestText = requestText.replace(generic, " ");
-        }
-        requestText = requestText.replaceAll("\\s+", " ").trim();
-        if (requestText.isBlank()) {
-            return List.of();
-        }
-
-        return Arrays.stream(requestText.split("\\b(?:va|voi|cung|gom|them)\\b"))
-                .map(String::trim)
-                .map(phrase -> phrase.replaceAll("\\s+", " "))
-                .filter(phrase -> phrase.length() >= 3)
-                .distinct()
-                .toList();
+        return productCandidateService.extractDirectProductPhrases(userMessage);
     }
 
     private boolean directProductMatchesPhrase(Product product, String phrase) {
-        String normalizedPhrase = normalizeText(phrase);
-        if (normalizedPhrase.isBlank()) {
-            return false;
-        }
-        String haystack = productSearchText(product);
-        if (haystack.contains(normalizedPhrase)) {
-            return true;
-        }
-        List<String> phraseTokens = meaningfulProductTokens(normalizedPhrase);
-        if (phraseTokens.size() >= 2 && phraseTokens.stream().allMatch(haystack::contains)) {
-            return true;
-        }
-
-        String name = normalizeText(product.getName());
-        List<String> nameTokens = meaningfulProductTokens(name);
-        for (int i = 0; i + 1 < nameTokens.size(); i++) {
-            String productPhrase = nameTokens.get(i) + " " + nameTokens.get(i + 1);
-            if (normalizedPhrase.contains(productPhrase)) {
-                return true;
-            }
-        }
-        return false;
+        return productCandidateService.directProductMatchesPhrase(product, phrase);
     }
 
-    private int directProductMatchScore(Product product, String phrase) {
-        String normalizedPhrase = normalizeText(phrase);
-        String name = normalizeText(product.getName());
-        String haystack = productSearchText(product);
-        int score = 0;
-        if (name.equals(normalizedPhrase)) {
-            score += 300;
-        }
-        if (name.contains(normalizedPhrase)) {
-            score += 180 + normalizedPhrase.length();
-        }
-        if (haystack.contains(normalizedPhrase)) {
-            score += 120 + normalizedPhrase.length();
-        }
-        List<String> phraseTokens = meaningfulProductTokens(normalizedPhrase);
-        for (String token : phraseTokens) {
-            if (name.contains(token)) {
-                score += 20;
-            } else if (haystack.contains(token)) {
-                score += 8;
-            }
-        }
-        return score;
-    }
-
-    private List<String> meaningfulProductTokens(String text) {
-        return Arrays.stream(normalizeText(text).split("\\s+"))
-                .filter(token -> token.length() >= 2)
-                .filter(token -> !Set.of(
-                        "va", "voi", "cho", "mua", "san", "pham", "loai",
-                        "hop", "chai", "goi", "kg", "ml", "lit").contains(token))
-                .toList();
-    }
-
-    private ChatResponsePayload buildShoppingListFromDirectMealRequest(String userMessage) {
+    private ChatResponsePayload buildShoppingListFromDirectMealRequest(Long userId, String userMessage) {
         ChatResponsePayload payload = new ChatResponsePayload();
         payload.setIntentDetected("DIRECT_MEAL_SHOPPING_LIST");
         payload.setTrustScore(82f);
@@ -1582,10 +1658,28 @@ public class ChatAssistantService {
         payload.setRemoveReasons(new HashMap<>());
         payload.setExplanations(new HashMap<>());
 
-        List<String> ingredientTerms = extractDirectIngredientTerms(userMessage);
+        Optional<MealOption> knownRecipe = buildKnownRecipeTemplate(userMessage);
+        List<String> ingredientTerms = knownRecipe
+                .map(MealOption::getIngredients)
+                .orElseGet(() -> extractDirectIngredientTerms(userMessage));
+        Set<String> allergyTokens = readUserAllergyTokens(userId);
+        List<String> allergyExcludedTerms = ingredientTerms.stream()
+                .filter(term -> violatesAllergy(term, allergyTokens))
+                .toList();
+        if (!allergyExcludedTerms.isEmpty()) {
+            ingredientTerms = ingredientTerms.stream()
+                    .filter(term -> !violatesAllergy(term, allergyTokens))
+                    .toList();
+        }
         if (ingredientTerms.isEmpty()) {
             payload.setIntentDetected("MEAL_SELECTION_CLARIFICATION");
             payload.setTrustScore(70f);
+            if (!allergyExcludedTerms.isEmpty()) {
+                payload.setReply("Món này đang trùng toàn bộ với dị ứng trong hồ sơ của bạn: "
+                        + String.join(", ", allergyExcludedTerms)
+                        + ". Bạn muốn mình gợi ý phiên bản thay thế không chứa dị ứng không?");
+                return payload;
+            }
             payload.setReply("Bạn muốn mua nguyên liệu cho món nào? Ví dụ: ức gà áp chảo măng tây khoai lang.");
             return payload;
         }
@@ -1605,12 +1699,13 @@ public class ChatAssistantService {
                 .toList();
         Set<Long> stockedProductIds = findActiveStockedProductIds(activeProductIds);
         LinkedHashSet<Long> usedProductIds = new LinkedHashSet<>();
-        MealOption directMeal = MealOption.builder()
+        List<String> safeIngredientTerms = ingredientTerms;
+        MealOption directMeal = knownRecipe.orElseGet(() -> MealOption.builder()
                 .optionNo(0)
                 .title(extractDirectMealTitle(userMessage))
-                .ingredients(ingredientTerms)
+                .ingredients(safeIngredientTerms)
                 .reason("nguyên liệu do người dùng nêu trực tiếp")
-                .build();
+                .build());
 
         for (String ingredient : ingredientTerms) {
             findBestProductForIngredient(ingredient, directMeal, activeProducts, stockedProductIds, usedProductIds)
@@ -1629,7 +1724,7 @@ public class ChatAssistantService {
             filterOutOfStock(payload.getProposedItems());
             filterNonFoodForMealIntent(payload, userMessage);
             filterExcludedIngredients(payload, userMessage);
-            filterLowQualityMealItems(payload, userMessage);
+            enforceUserProfileAllergies(payload, userId);
             syncRecommendedIdsFromProposedItems(payload);
         }
 
@@ -1650,14 +1745,54 @@ public class ChatAssistantService {
                 .filter(term -> !matchedTerms.contains(term))
                 .toList();
 
+        String recipeTitle = directMeal.getTitle();
+        String fullIngredientsText = String.join(", ", ingredientTerms);
         if (missingTerms.isEmpty()) {
-            payload.setReply("Mình đã tạo danh sách mua sắm từ các nguyên liệu bạn nêu.");
+            payload.setReply("Mình đã tạo danh sách mua sắm cho " + recipeTitle
+                    + ". Nguyên liệu gồm: " + fullIngredientsText + ".");
         } else {
-            payload.setReply("Mình đã tạo danh sách mua sắm từ các nguyên liệu tìm được. Hiện chưa khớp được hoặc chưa còn hàng: "
+            payload.setReply("Mình đã tạo danh sách mua sắm cho " + recipeTitle
+                    + ". Công thức cần: " + fullIngredientsText
+                    + ". Hiện chưa khớp được hoặc chưa còn hàng: "
                     + String.join(", ", missingTerms) + ".");
             payload.setTrustScore(72f);
         }
+        if (!allergyExcludedTerms.isEmpty()) {
+            payload.setReply(payload.getReply()
+                    + " Mình đã loại khỏi danh sách các nguyên liệu trùng dị ứng trong hồ sơ của bạn: "
+                    + String.join(", ", allergyExcludedTerms) + ".");
+            payload.setTrustScore(payload.getTrustScore() == null ? 74f : Math.min(payload.getTrustScore(), 74f));
+        }
         return payload;
+    }
+
+    private Optional<MealOption> buildKnownRecipeTemplate(String userMessage) {
+        Optional<String> recipeKey = needExtractionService.recipeKey(userMessage);
+        if (recipeKey.isPresent() && "GA_KHO".equals(recipeKey.get())) {
+            return Optional.of(MealOption.builder()
+                    .optionNo(0)
+                    .title("Gà kho")
+                    .ingredients(List.of("thịt gà", "nước mắm", "hạt nêm", "đường", "tiêu", "hành lá", "tỏi"))
+                    .reason("công thức gà kho cơ bản")
+                    .build());
+        }
+        if (recipeKey.isPresent() && "SALAD_HEALTHY".equals(recipeKey.get())) {
+            return Optional.of(MealOption.builder()
+                    .optionNo(0)
+                    .title("Salad healthy")
+                    .ingredients(List.of("xà lách", "dưa leo", "cà chua", "trứng", "ức gà", "dầu oliu"))
+                    .reason("salad cân bằng rau xanh, protein và chất béo tốt")
+                    .build());
+        }
+        if (recipeKey.isPresent() && "MI_Y".equals(recipeKey.get())) {
+            return Optional.of(MealOption.builder()
+                    .optionNo(0)
+                    .title("Mì Ý sốt kem nấm không cà chua")
+                    .ingredients(List.of("mì Ý", "nấm", "sữa tươi", "phô mai", "ức gà", "dầu oliu"))
+                    .reason("phiên bản mì Ý không dùng cà chua, phù hợp khi cần tránh sốt cà chua")
+                    .build());
+        }
+        return Optional.empty();
     }
 
     private List<String> extractDirectIngredientTerms(String userMessage) {
@@ -1666,9 +1801,12 @@ public class ChatAssistantService {
                 "uc ga", "thit ga", "ga", "trung", "dau hu", "dau phu",
                 "mang tay", "khoai lang", "xa lach", "dua leo", "tao",
                 "yen mach", "nam", "su hao", "gao lut", "bun gao lut",
-                "sua tuoi tach beo", "sua hanh nhan", "blueberry",
+                "sua tuoi tach beo", "sua tuoi", "sua hanh nhan", "blueberry",
                 "rau xanh", "bap cai", "bong cai", "ca rot", "bi do",
-                "thit bo", "bo", "thit heo nac", "heo nac"
+                "thit bo", "bo", "thit heo nac", "heo nac",
+                "nuoc mam", "hat nem", "duong", "tieu", "hanh la",
+                "hanh tim", "toi", "ca chua", "dau oliu", "dau an",
+                "mi y", "spaghetti", "pasta", "pho mai"
         );
         return knownTerms.stream()
                 .filter(term -> containsIngredientTerm(n, term))
@@ -1709,7 +1847,7 @@ public class ChatAssistantService {
         return title.isBlank() ? "món bạn đã nêu" : title;
     }
 
-    private ChatResponsePayload buildShoppingListFromSelectedMealPayload(String userMessage, String sessionContext) {
+    private ChatResponsePayload buildShoppingListFromSelectedMealPayload(Long userId, String userMessage, String sessionContext) {
         ChatResponsePayload payload = new ChatResponsePayload();
         payload.setIntentDetected("SHOPPING_LIST_CREATE");
         payload.setTrustScore(82f);
@@ -1753,30 +1891,102 @@ public class ChatAssistantService {
         Set<Long> stockedProductIds = findActiveStockedProductIds(activeProductIds);
         LinkedHashSet<Long> usedProductIds = new LinkedHashSet<>();
 
-        for (String ingredient : selected.getIngredients()) {
-            findBestProductForIngredient(ingredient, selected, activeProducts, stockedProductIds, usedProductIds)
-                    .ifPresent(product -> {
-                        usedProductIds.add(product.getId());
-                        payload.getProposedItems().add(ProposedItemDto.builder()
-                                .productId(product.getId())
-                                .quantity(1)
-                                .reason("Nguyên liệu cho " + selected.getTitle() + ".")
-                                .build());
-                        payload.getExplanations().put(product.getId(), "Khớp nguyên liệu: " + ingredient);
-                    });
+        List<IngredientComparisonService.IngredientMatchResult> matchResults = 
+                ingredientComparisonService.analyzeAndMatchIngredients(selected.getIngredients());
+
+        List<String> skippedStaples = new ArrayList<>();
+        List<String> missingIngredients = new ArrayList<>();
+        Set<String> selectedMealAllergyTokens = readUserAllergyTokens(userId);
+
+        // Batch load product details with categories to avoid N+1 and LazyInitializationException
+        List<Long> matchedIds = matchResults.stream()
+                .map(IngredientComparisonService.IngredientMatchResult::productId)
+                .filter(Objects::nonNull)
+                .toList();
+        Map<Long, Product> productDetailsMap = productRepository.findAllByIdWithCategory(matchedIds).stream()
+                .collect(Collectors.toMap(Product::getId, p -> p));
+
+        for (IngredientComparisonService.IngredientMatchResult match : matchResults) {
+            if (violatesAllergy(match.originalIngredient(), selectedMealAllergyTokens)) {
+                missingIngredients.add(match.originalIngredient() + " (trùng dị ứng trong hồ sơ)");
+                continue;
+            }
+            if (match.status().equals("MATCHED") || match.status().equals("AMBIGUOUS")) {
+                Product product = productDetailsMap.get(match.productId());
+                if (product != null && !isStrictIngredientProductCompatible(match.originalIngredient(), product)) {
+                    missingIngredients.add(match.originalIngredient() + " (sản phẩm khớp sai loại: " + product.getName() + ")");
+                    continue;
+                }
+                if (product != null && productViolatesAllergy(product, selectedMealAllergyTokens)) {
+                    missingIngredients.add(match.originalIngredient() + " (sản phẩm trùng dị ứng: " + product.getName() + ")");
+                    continue;
+                }
+                if (product != null && Boolean.TRUE.equals(product.getIsStaple())) {
+                    skippedStaples.add(product.getName());
+                    continue;
+                }
+                
+                if (product != null && stockedProductIds.contains(product.getId()) && !usedProductIds.contains(product.getId())) {
+                    usedProductIds.add(product.getId());
+                    payload.getProposedItems().add(ProposedItemDto.builder()
+                            .productId(product.getId())
+                            .quantity(1)
+                            .reason("Nguyên liệu " + match.originalIngredient() + " cho " + selected.getTitle() + ".")
+                            .build());
+                    payload.getExplanations().put(product.getId(), "Khớp Graph: " + match.details());
+                } else {
+                    missingIngredients.add(match.originalIngredient() + " (hết hàng)");
+                }
+            } else {
+                missingIngredients.add(match.originalIngredient());
+            }
         }
 
         syncRecommendedIdsFromProposedItems(payload);
+        
+        StringBuilder replyBuilder = new StringBuilder();
+        replyBuilder.append("Hệ thống đã phân tích và đối chiếu nguyên liệu cho món **").append(selected.getTitle()).append("**: \n\n");
+        
         if (payload.getProposedItems().isEmpty()) {
-            payload.setReply("Mình đã ghi nhận thực đơn " + selected.getTitle()
-                    + ", nhưng hiện chưa tìm được nguyên liệu còn hàng phù hợp để tạo danh sách mua sắm.");
-            payload.setTrustScore(60f);
+            replyBuilder.append("⚠️ Rất tiếc, mình chưa tìm thấy nguyên liệu chính nào còn hàng trong kho phù hợp với thực đơn này.");
+            payload.setReply(replyBuilder.toString());
+            payload.setTrustScore(50f);
             return payload;
         }
 
-        payload.setReply("Mình đã tạo danh sách mua sắm cho thực đơn " + selected.getTitle()
-                + ". Mình chỉ đưa vào các nguyên liệu chính còn hàng; gia vị phụ như muối, tiêu hoặc dầu ăn chỉ nên thêm nếu bạn thật sự cần mua.");
+        replyBuilder.append("✅ Đã chuẩn bị danh sách mua sắm với các nguyên liệu chính.");
+        
+        if (!skippedStaples.isEmpty()) {
+            replyBuilder.append("\n- Lược bỏ gia vị có sẵn: ").append(String.join(", ", skippedStaples)).append(".");
+        }
+        
+        if (!missingIngredients.isEmpty()) {
+            replyBuilder.append("\n- Lưu ý: Không tìm thấy hoặc hết hàng cho: ").append(String.join(", ", missingIngredients)).append(".");
+        }
+
+        payload.setReply(replyBuilder.toString());
         return payload;
+    }
+
+    private boolean isStrictIngredientProductCompatible(String ingredient, Product product) {
+        String n = normalizeText(ingredient);
+        String productText = productSearchText(product);
+        if (containsNormalizedPhrase(n, "uc ga")) {
+            boolean isBreast = containsNormalizedPhrase(productText, "uc ga")
+                    || (containsNormalizedPhrase(productText, "phi le") && containsNormalizedPhrase(productText, "ga"));
+            boolean wrongPart = containsNormalizedPhrase(productText, "canh ga")
+                    || containsNormalizedPhrase(productText, "dui ga")
+                    || containsNormalizedPhrase(productText, "chan ga")
+                    || containsNormalizedPhrase(productText, "long ga");
+            return isBreast && !wrongPart;
+        }
+        if (containsNormalizedPhrase(n, "canh ga")) {
+            return containsNormalizedPhrase(productText, "canh ga");
+        }
+        if (containsNormalizedPhrase(n, "dui ga")) {
+            return containsNormalizedPhrase(productText, "dui ga");
+        }
+        return true;
     }
 
     private Optional<Product> findBestProductForIngredient(
@@ -1793,13 +2003,41 @@ public class ChatAssistantService {
                 .filter(product -> !usedProductIds.contains(product.getId()))
                 .filter(product -> ingredientMatchesProduct(product, aliases))
                 .filter(product -> ingredientCompatibleWithProduct(ingredient, product))
-                .filter(product -> isMealCandidateAllowed(
-                        scoringContext,
-                        product.getName(),
-                        safeCategoryName(product),
-                        product.getDescription()
-                ))
+                .filter(product -> isIngredientMappedProductAllowed(ingredient, selected, product, scoringContext))
                 .max(Comparator.comparingInt(product -> ingredientProductScore(product, aliases, scoringContext)));
+    }
+
+    private boolean isIngredientMappedProductAllowed(
+            String ingredient,
+            MealOption selected,
+            Product product,
+            String scoringContext
+    ) {
+        if (selected != null && selected.getOptionNo() == 0) {
+            return true;
+        }
+        if (isRecipeSeasoningIngredient(ingredient)) {
+            return true;
+        }
+        return isMealCandidateAllowed(
+                scoringContext,
+                product.getName(),
+                safeCategoryName(product),
+                product.getDescription()
+        );
+    }
+
+    private boolean isRecipeSeasoningIngredient(String ingredient) {
+        String n = normalizeText(ingredient);
+        return containsNormalizedPhrase(n, "nuoc mam")
+                || containsNormalizedPhrase(n, "hat nem")
+                || containsNormalizedPhrase(n, "duong")
+                || containsNormalizedPhrase(n, "tieu")
+                || containsNormalizedPhrase(n, "hanh la")
+                || containsNormalizedPhrase(n, "hanh tim")
+                || containsNormalizedPhrase(n, "toi")
+                || containsNormalizedPhrase(n, "dau oliu")
+                || containsNormalizedPhrase(n, "dau an");
     }
 
     private boolean ingredientMatchesProduct(Product product, List<String> aliases) {
@@ -1863,6 +2101,7 @@ public class ChatAssistantService {
     private List<String> ingredientAliases(String ingredient) {
         String n = normalizeText(ingredient);
         if (n.contains("uc ga")) return List.of("uc ga", "thit ga", "ga");
+        if (n.contains("thit ga") || n.equals("ga")) return List.of("thit ga", "ga", "dui ga", "canh ga", "uc ga");
         if (n.contains("mang tay")) return List.of("mang tay");
         if (n.contains("khoai lang")) return List.of("khoai lang");
         if (n.contains("dau hu") || n.contains("dau phu")) return List.of("dau hu", "dau phu");
@@ -1874,9 +2113,22 @@ public class ChatAssistantService {
         if (n.contains("dua leo")) return List.of("dua leo", "dưa leo", "cucumber");
         if (n.equals("tao") || n.contains(" tao")) return List.of("tao", "apple");
         if (n.contains("sua tuoi tach beo")) return List.of("sua tuoi tach beo", "sua tach beo");
+        if (n.contains("sua tuoi")) return List.of("sua tuoi");
         if (n.contains("sua hanh nhan")) return List.of("sua hanh nhan", "hanh nhan");
         if (n.contains("blueberry")) return List.of("blueberry", "viet quat");
         if (n.contains("rau xanh")) return List.of("rau xanh", "rau", "xa lach", "bap cai", "mong toi");
+        if (n.contains("mi y") || n.contains("spaghetti") || n.contains("pasta")) return List.of("mi y", "spaghetti", "pasta");
+        if (n.contains("pho mai")) return List.of("pho mai", "cheese");
+        if (n.contains("ca chua")) return List.of("ca chua", "tomato");
+        if (n.contains("nuoc mam")) return List.of("nuoc mam");
+        if (n.contains("hat nem")) return List.of("hat nem");
+        if (n.equals("duong") || n.contains(" duong")) return List.of("duong");
+        if (n.contains("tieu")) return List.of("tieu", "tieu den");
+        if (n.contains("hanh la")) return List.of("hanh la");
+        if (n.contains("hanh tim")) return List.of("hanh tim", "hanh");
+        if (n.equals("toi") || n.contains(" toi")) return List.of("toi");
+        if (n.contains("dau oliu")) return List.of("dau oliu", "dau xit oliu", "olive oil");
+        if (n.contains("dau an")) return List.of("dau an", "dau an huong duong");
         return List.of(n);
     }
 
@@ -1884,7 +2136,7 @@ public class ChatAssistantService {
         if (!isShoppingListRequest(userMessage) || isMealOrDietIntent(userMessage)) {
             return false;
         }
-        if (!readShoppingCandidateIds(sessionContext).isEmpty()
+        if (!readActiveShoppingCandidateIds(sessionContext).isEmpty()
                 && readLastShoppingCandidateMealIntent(sessionContext)) {
             return false;
         }
@@ -1976,6 +2228,9 @@ public class ChatAssistantService {
                     .forEach(ids::add);
         }
         if (ids.isEmpty()) {
+            if (isShoppingListRequest(userMessage)) {
+                clearShoppingSessionContext(sessionId);
+            }
             return;
         }
 
@@ -1985,6 +2240,9 @@ public class ChatAssistantService {
                 .limit(12)
                 .toList();
         if (safeIds.isEmpty()) {
+            if (isShoppingListRequest(userMessage)) {
+                clearShoppingSessionContext(sessionId);
+            }
             return;
         }
 
@@ -1998,8 +2256,11 @@ public class ChatAssistantService {
                             || "SHOPPING_LIST_CREATE".equals(payload.getIntentDetected())
                             || "DIRECT_MEAL_SHOPPING_LIST".equals(payload.getIntentDetected()));
             context.put("lastShoppingCandidateUpdatedAt", LocalDateTime.now().toString());
+            context.remove("lastMealOptions"); // Clear meal options once a shopping list context is established
+            context.remove("lastMealOptionsGoal");
+            context.remove("lastMealOptionsVariant");
             try {
-                session.setSessionContext(objectMapper.writeValueAsString(context));
+                session.setSessionContext(toJson(context));
                 sessionRepository.save(session);
             } catch (Exception e) {
                 log.warn("Could not update shopping session context: {}", e.getMessage());
@@ -2007,7 +2268,7 @@ public class ChatAssistantService {
         });
     }
 
-    private void updateMealOptionsSessionContext(Long sessionId, List<MealOption> options, String userMessage) {
+    private void updateMealOptionsSessionContext(Long sessionId, List<MealOption> options, String userMessage, int variant) {
         if (options == null || options.isEmpty()) {
             return;
         }
@@ -2018,17 +2279,76 @@ public class ChatAssistantService {
             context.put("lastMealOptions", options.stream()
                     .map(this::mealOptionToMap)
                     .toList());
-            context.put("lastMealOptionsGoal", normalizeText(userMessage));
+            context.put("lastMealOptionsGoal", mealGoalSignature(userMessage));
+            context.put("lastMealOptionsVariant", variant);
             context.put("lastMealOptionsUpdatedAt", LocalDateTime.now().toString());
             context.remove("lastShoppingCandidateIds");
             context.remove("lastShoppingCandidateMealIntent");
             try {
-                session.setSessionContext(objectMapper.writeValueAsString(context));
+                session.setSessionContext(toJson(context));
                 sessionRepository.save(session);
+                logFrozenMealOptions("updateMealOptionsSessionContext", sessionId, options);
             } catch (Exception e) {
                 log.warn("Could not update meal options session context: {}", e.getMessage());
             }
         });
+    }
+
+    private void clearMealOptionsSessionContext(Long sessionId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            ChatSession session = sessionRepository.findById(sessionId)
+                    .orElseThrow(() -> new RuntimeException("Chat session not found"));
+            Map<String, Object> context = readSessionContextMap(session.getSessionContext());
+            context.remove("lastMealOptions");
+            context.remove("lastMealOptionsGoal");
+            context.remove("lastMealOptionsVariant");
+            context.remove("lastMealOptionsUpdatedAt");
+            try {
+                session.setSessionContext(toJson(context));
+                sessionRepository.save(session);
+            } catch (Exception e) {
+                log.warn("Could not clear meal options session context: {}", e.getMessage());
+            }
+        });
+    }
+
+    private void clearShoppingSessionContext(Long sessionId) {
+        transactionTemplate.executeWithoutResult(status -> {
+            ChatSession session = sessionRepository.findById(sessionId)
+                    .orElseThrow(() -> new RuntimeException("Chat session not found"));
+            Map<String, Object> context = readSessionContextMap(session.getSessionContext());
+            context.remove("lastShoppingCandidateIds");
+            context.remove("lastShoppingCandidateMealIntent");
+            context.remove("lastShoppingCandidateUpdatedAt");
+            try {
+                session.setSessionContext(toJson(context));
+                sessionRepository.save(session);
+            } catch (Exception e) {
+                log.warn("Could not clear shopping session context: {}", e.getMessage());
+            }
+        });
+    }
+
+    private void logFrozenMealOptions(String source, Long sessionId, List<MealOption> options) {
+        try {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("timestamp", LocalDateTime.now().toString());
+            entry.put("event", "FROZEN_MEAL_OPTIONS");
+            entry.put("source", source);
+            entry.put("sessionId", sessionId);
+            entry.put("options", options == null
+                    ? List.of()
+                    : options.stream().map(this::mealOptionToMap).toList());
+            String logEntry = "\n" + toJson(entry) + "\n";
+            java.nio.file.Files.write(
+                    java.nio.file.Paths.get("ai-debug.txt"),
+                    logEntry.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.APPEND
+            );
+        } catch (Exception e) {
+            log.debug("Could not write frozen meal options debug log: {}", e.getMessage());
+        }
     }
 
     private Map<String, Object> mealOptionToMap(MealOption option) {
@@ -2049,6 +2369,20 @@ public class ChatAssistantService {
                 .map(this::coercePositiveLong)
                 .flatMap(Optional::stream)
                 .distinct()
+                .toList();
+    }
+
+    private List<Long> readActiveShoppingCandidateIds(String sessionContext) {
+        List<Long> ids = readShoppingCandidateIds(sessionContext);
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> activeStockedIds = findActiveStockedProductIds(ids);
+        if (activeStockedIds == null || activeStockedIds.isEmpty()) {
+            return List.of();
+        }
+        return ids.stream()
+                .filter(activeStockedIds::contains)
                 .toList();
     }
 
@@ -2130,7 +2464,7 @@ public class ChatAssistantService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
-        Map<Long, Product> productsById = productRepository.findAllById(productIds).stream()
+        Map<Long, Product> productsById = productRepository.findAllByIdWithCategory(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, product -> product));
 
         proposedItems.removeIf(item -> {
@@ -2304,7 +2638,7 @@ public class ChatAssistantService {
                 .toList();
         if (productIds.isEmpty()) return;
 
-        Map<Long, Product> productsById = productRepository.findAllById(productIds).stream()
+        Map<Long, Product> productsById = productRepository.findAllByIdWithCategory(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
 
         int before = payload.getProposedItems().size();
@@ -2348,6 +2682,107 @@ public class ChatAssistantService {
      * Parses negative constraints from user message and hard-blocks matching products.
      * E.g., "không ăn hải sản" → remove all seafood.
      */
+    private void enforceUserProfileAllergies(ChatResponsePayload payload, Long userId) {
+        Set<String> allergyTokens = readUserAllergyTokens(userId);
+        if (allergyTokens.isEmpty() || payload.getProposedItems() == null || payload.getProposedItems().isEmpty()) {
+            return;
+        }
+
+        List<Long> productIds = payload.getProposedItems().stream()
+                .map(ProposedItemDto::getProductId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (productIds.isEmpty()) {
+            return;
+        }
+
+        Map<Long, Product> productsById = productRepository.findAllByIdWithCategory(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, product -> product));
+        List<String> removedNames = new ArrayList<>();
+
+        payload.getProposedItems().removeIf(item -> {
+            Product product = productsById.get(item.getProductId());
+            boolean remove = product == null || productViolatesAllergy(product, allergyTokens)
+                    || violatesAllergy(payload.getExplanations().get(item.getProductId()), allergyTokens)
+                    || violatesAllergy(item.getReason(), allergyTokens);
+            if (remove && product != null) {
+                removedNames.add(product.getName());
+            }
+            return remove;
+        });
+
+        if (!removedNames.isEmpty()) {
+            if (payload.getProposedItems().isEmpty()) {
+                payload.setRecommendedProductIds(new ArrayList<>());
+            } else {
+                syncRecommendedIdsFromProposedItems(payload);
+            }
+            appendCorrection(payload, "Mình đã loại các sản phẩm trùng dị ứng trong hồ sơ của bạn: "
+                    + String.join(", ", removedNames) + ".");
+            payload.setTrustScore(payload.getTrustScore() == null ? 70f : Math.min(payload.getTrustScore(), 70f));
+            log.info("Allergy Guard: removed products {} for user {}", removedNames, userId);
+        }
+    }
+
+    private Set<String> readUserAllergyTokens(Long userId) {
+        return userProfileConstraintService.loadAvoidanceTerms(userId);
+    }
+
+    private Set<String> extractAllergyTokens(String allergies) {
+        return userProfileConstraintService.extractAvoidanceTerms(allergies);
+    }
+
+    private boolean productViolatesAllergy(Product product, Set<String> allergyTokens) {
+        return userProfileConstraintService.violatesProduct(product, allergyTokens);
+    }
+
+    private boolean violatesAllergy(String text, Set<String> allergyTokens) {
+        return userProfileConstraintService.violatesText(text, allergyTokens);
+    }
+
+    private boolean isAllergyCorrection(String userMessage) {
+        return !userProfileConstraintService.extractClearedAllergyTerms(userMessage).isEmpty();
+    }
+
+    private ChatResponsePayload buildAllergyCorrectionPayload(Long userId, String userMessage) {
+        ChatResponsePayload payload = new ChatResponsePayload();
+        payload.setIntentDetected("PROFILE_ALLERGY_CORRECTION");
+        payload.setTrustScore(92f);
+        payload.setRecommendedProductIds(new ArrayList<>());
+        payload.setProposedItems(new ArrayList<>());
+        payload.setRemoveVariantIds(new ArrayList<>());
+        payload.setRemoveReasons(new HashMap<>());
+        payload.setExplanations(new HashMap<>());
+
+        Set<String> clearedTerms = userProfileConstraintService.extractClearedAllergyTerms(userMessage);
+        transactionTemplate.executeWithoutResult(status ->
+                nutritionProfileRepository.findByUser_Id(userId).ifPresent(profile -> {
+                    String updated = userProfileConstraintService.removeClearedAllergyTerms(profile.getAllergies(), userMessage);
+                    profile.setAllergies(updated);
+                    List<String> allowed = clearedTerms.stream()
+                            .filter(term -> !"*".equals(term))
+                            .toList();
+                    if (!allowed.isEmpty()) {
+                        profile.setFoodConstraints(userProfileConstraintService.mergeFoodConstraints(
+                                profile.getFoodConstraints(),
+                                List.of(),
+                                allowed,
+                                List.of(),
+                                List.of()
+                        ));
+                    }
+                    nutritionProfileRepository.save(profile);
+                }));
+
+        String displayTerms = clearedTerms.contains("*")
+                ? "các dị ứng đã lưu"
+                : String.join(", ", clearedTerms);
+        payload.setReply("Mình đã cập nhật hồ sơ: bạn không dị ứng với " + displayTerms
+                + ". Từ giờ mình sẽ không loại các sản phẩm đó vì lý do dị ứng nữa.");
+        return payload;
+    }
+
     private void filterExcludedIngredients(ChatResponsePayload payload, String userMessage) {
         if (!excludesSeafood(userMessage)) return;
 
@@ -2358,7 +2793,7 @@ public class ChatAssistantService {
                 .toList();
         if (productIds.isEmpty()) return;
 
-        Map<Long, Product> productsById = productRepository.findAllById(productIds).stream()
+        Map<Long, Product> productsById = productRepository.findAllByIdWithCategory(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
 
         int before = payload.getProposedItems().size();
@@ -2415,7 +2850,7 @@ public class ChatAssistantService {
         if (productIds.isEmpty()) {
             return;
         }
-        Map<Long, Product> productsById = productRepository.findAllById(productIds).stream()
+        Map<Long, Product> productsById = productRepository.findAllByIdWithCategory(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
 
         int before = payload.getProposedItems().size();
@@ -2508,16 +2943,7 @@ public class ChatAssistantService {
      * Checks if the user's message indicates a meal, diet, or food shopping intent.
      */
     private boolean isMealOrDietIntent(String userMessage) {
-        String n = normalizeText(userMessage);
-        return n.contains("bua toi") || n.contains("bua sang") || n.contains("bua trua")
-                || n.contains("an toi") || n.contains("an sang") || n.contains("an trua")
-                || n.contains("giam can") || n.contains("tang can") || n.contains("healthy")
-                || n.contains("diet") || n.contains("protein") || n.contains("dinh duong")
-                || n.contains("thuc don") || n.contains("meal") || n.contains("nau")
-                || n.contains("mon an") || n.contains("cong thuc") || n.contains("recipe")
-                || n.contains("no lau") || n.contains("nhe nhang") || n.contains("khong ngay")
-                || n.contains("beefsteak") || n.contains("steak")
-                || n.contains("an kieng") || n.contains("it calo") || n.contains("low calorie");
+        return needExtractionService.isMealOrDietIntent(userMessage);
     }
 
     private void filterRecommendedProductIds(ChatResponsePayload payload, String userMessage) {
@@ -2581,56 +3007,7 @@ public class ChatAssistantService {
     }
 
     private Set<Long> findActiveStockedProductIds(Collection<Long> productIds) {
-        List<Long> ids = productIds == null ? List.of() : productIds.stream()
-                .filter(Objects::nonNull)
-                .filter(id -> id > 0)
-                .distinct()
-                .toList();
-        if (ids.isEmpty()) {
-            return Set.of();
-        }
-
-        try {
-            Set<Long> activeProductIds = productRepository.findAllById(ids).stream()
-                    .filter(product -> "ACTIVE".equalsIgnoreCase(product.getStatus()))
-                    .map(Product::getId)
-                    .collect(Collectors.toSet());
-            if (activeProductIds.isEmpty()) {
-                return Set.of();
-            }
-
-            List<ProductVariant> variants = productVariantRepository.findByProductIdsAndStatusWithProduct(
-                            new ArrayList<>(activeProductIds),
-                            "ACTIVE"
-                    ).stream()
-                    .filter(this::isActiveVariantForActiveProduct)
-                    .toList();
-            if (variants.isEmpty()) {
-                return Set.of();
-            }
-
-            List<Long> variantIds = variants.stream().map(ProductVariant::getId).toList();
-            Map<Long, Long> stockByVariantId = inventoryStockRepository.sumAvailableByVariantIds(variantIds).stream()
-                    .collect(Collectors.toMap(
-                            InventoryStockRepository.VariantStockSum::getVariantId,
-                            InventoryStockRepository.VariantStockSum::getTotalAvailable
-                    ));
-
-            Map<Long, Long> stockByProductId = new HashMap<>();
-            for (ProductVariant variant : variants) {
-                long stock = stockByVariantId.getOrDefault(variant.getId(), 0L);
-                Long productId = variant.getProduct().getId();
-                stockByProductId.put(productId, stockByProductId.getOrDefault(productId, 0L) + stock);
-            }
-
-            return stockByProductId.entrySet().stream()
-                    .filter(entry -> entry.getValue() > 0)
-                    .map(Map.Entry::getKey)
-                    .collect(Collectors.toSet());
-        } catch (Exception e) {
-            log.warn("Batch stock guard failed: {}", e.getMessage());
-            return Set.of();
-        }
+        return shoppingActionValidator.findActiveStockedProductIds(productIds);
     }
 
     private Optional<Long> parsePositiveLong(JsonNode node) {
@@ -2747,10 +3124,6 @@ public class ChatAssistantService {
         return null;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    //  FEEDBACK HANDLER (MEMM Loop)
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-
     @Transactional
     public boolean handleFeedback(Long messageId, String feedbackType) {
         if (messageId == null || !isSupportedFeedbackType(feedbackType)) {
@@ -2787,10 +3160,6 @@ public class ChatAssistantService {
                         .build())
                 .toList();
     }
-
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    //  CHAT HISTORY
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     public List<ChatHistoryDto> getChatHistory(Long userId) {
         List<ChatSession> sessions = sessionRepository.findByUser_IdOrderByLastActiveAtDesc(userId);
@@ -2829,10 +3198,6 @@ public class ChatAssistantService {
         return result;
     }
 
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    //  HELPERS
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-
     private ChatSession createNewSession(User user) {
         ChatSession session = ChatSession.builder()
                 .user(user).status("ACTIVE").interactionCount(0).build();
@@ -2849,10 +3214,6 @@ public class ChatAssistantService {
                         "content", m.getContent() != null ? m.getContent() : ""))
                 .collect(Collectors.toList());
     }
-
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-    //  DTOs
-    // Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
     @Data @Builder @NoArgsConstructor @AllArgsConstructor
     private static class ChatRequestContext {
@@ -2872,72 +3233,11 @@ public class ChatAssistantService {
     }
 
     @Data @Builder @NoArgsConstructor @AllArgsConstructor
-    public static class ChatResponse {
-        private Long sessionId;
-        private String aiMessageId;
-        private String reply;
-        private List<Long> recommendedProductIds;
-        private List<ProposedItemDto> proposedItems;
-        private List<Long> removeVariantIds;
-        private Map<Long, String> removeReasons;
-        private Map<Long, String> explanations;
-        private Float trustScore;
-        private String thoughtProcess;
-        private IntentPredictionDto intentPrediction;
-        private String expectationPrompt;
-        private String replyStatus;
-        private String fallbackReply;
-        private String streamUrl;
-        private List<UiActionDto> uiActions;
-    }
-
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
-    public static class UiActionDto {
-        private String type;
-        private Long productId;
-        private int quantity;
-        private String reason;
-    }
-
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
-    public static class IntentPredictionDto {
-        private String detectedIntent;
-        private String message;
-        private List<SmartSuggestionDto> smartSuggestions;
-        private String bundleActionUi;
-    }
-
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
-    public static class SmartSuggestionDto {
-        private Long itemId;
-        private String itemName;
-        private String actionUi;
-    }
-
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
-    public static class ProposedItemDto {
-        private Long productId;
-        private int quantity;
-        private String reason;
-    }
-
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
     private static class MealOption {
         private int optionNo;
         private String title;
         private List<String> ingredients;
         private String reason;
-    }
-
-    @Data @Builder @NoArgsConstructor @AllArgsConstructor
-    public static class ChatHistoryDto {
-        private String type;
-        private Long sessionId;
-        private Long id;
-        private String title;
-        private String role;
-        private String content;
-        private String createdAt;
     }
 
     @Data
@@ -2954,20 +3254,173 @@ public class ChatAssistantService {
         private boolean hasPromotions;
     }
 
-    @Data
-    private static class ChatResponsePayload {
-        private String reply;
-        private String intentDetected;
-        private Float trustScore;
-        private String thoughtProcess;
-        private IntentPredictionDto intentPrediction;
-        private List<Long> recommendedProductIds = new ArrayList<>();
-        private List<ProposedItemDto> proposedItems = new ArrayList<>();
-        private List<Long> removeVariantIds = new ArrayList<>();
-        private Map<Long, String> removeReasons = new HashMap<>();
-        private Map<Long, String> explanations = new HashMap<>();
+    public ChatResponsePayload orchestratePass1(Long userId, Long sessionId, String userMessage) {
+        ChatRequestContext requestContext = prepareChatRequest(userId, sessionId, userMessage);
+        MotivationContext motivation = analyzeMotivation(userId, userMessage);
+        List<ProductNode> discoveredProducts = new ArrayList<>();
+        motivation.setDiscoveredProducts(discoveredProducts);
+        
+        String systemPrompt = appendAgentSessionContext(
+                buildMemmSystemPrompt(requestContext.getUserName(), requestContext.getInteractionCount(), motivation),
+                requestContext.getSessionContext()
+        );
+
+        int maxIterations = 3;
+        int currentIteration = 0;
+        boolean isDone = false;
+        OpenRouterClient.AiCompletionResult aiResult = null;
+        ChatResponsePayload selectedMealToolPayload = null;
+        List<Map<String, String>> messages = new ArrayList<>(requestContext.getConversationHistory());
+
+        while (!isDone && currentIteration < maxIterations) {
+            aiResult = openRouterClient
+                    .chatCompletion(systemPrompt, messages, aiAgentTools.getAvailableTools(), config.getPass1Model(),
+                            Duration.ofMillis(pass1TimeoutMs))
+                    .block();
+
+            if (aiResult != null && aiResult.getToolCalls() != null && aiResult.getToolCalls().isArray() && !aiResult.getToolCalls().isEmpty()) {
+                Map<String, String> assistantMsg = new HashMap<>();
+                assistantMsg.put("role", "assistant");
+                assistantMsg.put("content", aiResult.getReply() != null ? aiResult.getReply() : "");
+                assistantMsg.put("tool_calls", aiResult.getToolCalls().toString());
+                messages.add(assistantMsg);
+
+                for (JsonNode toolCall : aiResult.getToolCalls()) {
+                    String toolCallId = toolCall.path("id").asText();
+                    String name = toolCall.path("function").path("name").asText();
+                    String arguments = toolCall.path("function").path("arguments").asText();
+                    
+                    String toolResult;
+                    if ("select_meal".equals(name)) {
+                        try {
+                            JsonNode args = objectMapper.readTree(arguments);
+                            int optionNo = args.path("optionNo").asInt();
+                            String dummyMsg = "mon so " + optionNo;
+                            ChatResponsePayload mealPayload = buildShoppingListFromSelectedMealPayload(userId, dummyMsg, requestContext.getSessionContext());
+                            ensureMutableCollections(mealPayload);
+                            selectedMealToolPayload = mealPayload;
+                            toolResult = toJson(Map.of("status", "selected", "instruction", "Use validated items"));
+                        } catch (Exception e) {
+                            toolResult = "{\"error\": \"FAILED\", \"message\": \"" + e.getMessage() + "\"}";
+                        }
+                    } else if ("suggest_meals".equals(name)) {
+                        List<MealOption> options = filterMealOptionsByUserProfile(parseMealOptionsFromToolArgs(arguments), userId);
+                        updateMealOptionsSessionContext(requestContext.getSessionId(), options, userMessage, 0);
+                        toolResult = toJson(Map.of("status", "stored", "count", options.size()));
+                    } else if ("clear_context".equals(name)) {
+                        clearMealOptionsSessionContext(requestContext.getSessionId());
+                        toolResult = "{\"status\":\"cleared\"}";
+                    } else {
+                        toolResult = aiAgentTools.executeTool(userId, name, arguments);
+                    }
+
+                    Map<String, String> toolMsg = new HashMap<>();
+                    toolMsg.put("role", "tool");
+                    toolMsg.put("tool_call_id", toolCallId);
+                    toolMsg.put("name", name);
+                    toolMsg.put("content", toolResult);
+                    messages.add(toolMsg);
+                }
+                currentIteration++;
+            } else {
+                isDone = true;
+            }
+        }
+
+        ChatResponsePayload payload = aiResult != null && aiResult.isSuccess()
+                ? parseAiResponse(aiResult.getReply())
+                : buildFallbackPayload(userMessage, discoveredProducts);
+        ensureMutableCollections(payload);
+        if (selectedMealToolPayload != null) {
+            mergeSelectedMealToolPayload(payload, selectedMealToolPayload);
+        }
+        
+        // Enrichment logic
+        enrichWithSpecializedNutrition(payload, userId, userMessage);
+        
+        return payload;
+    }
+
+    private void enrichWithSpecializedNutrition(ChatResponsePayload payload, Long userId, String userMessage) {
+        if ("MEAL_PLAN_AUTO".equals(payload.getIntentDetected()) && (payload.getProposedItems() == null || payload.getProposedItems().isEmpty())) {
+             try {
+                  NutritionChatIntegrator.MealPlanChatResult mealPlan = nutritionChatIntegrator.generateMealPlanViaChat(userId, userMessage);
+                  if (mealPlan.isSuccess()) {
+                      payload.setReply(payload.getReply() + "\n\nTôi đã tạo một thực đơn 7 ngày mới cho bạn: " + mealPlan.getTitle());
+                      for (NutritionChatIntegrator.ProposedItemForChat item : mealPlan.getProposedItems()) {
+                          payload.getProposedItems().add(ProposedItemDto.builder()
+                                  .productId(item.getProductId())
+                                  .quantity(item.getQuantity() != null ? item.getQuantity() : 1)
+                                  .reason(item.getReason() != null ? item.getReason() : "Dành cho thực đơn mới")
+                                  .build());
+                      }
+                  }
+              } catch (Exception e) {
+                  log.warn("Dynamic meal plan generation failed: {}", e.getMessage());
+               }
+        }
+    }
+
+    @Transactional
+    public void applyGuardrails(ChatResponsePayload payload, Long userId, String userMessage) {
+        ChatRequestContext requestContext = prepareChatRequest(userId, 0L, userMessage); // sessionId not needed for filters usually
+        
+        if (payload.getProposedItems() != null && !payload.getProposedItems().isEmpty()) {
+            enforceProposedItemsCandidateScope(payload, userMessage, requestContext.getSessionContext(), new ArrayList<>());
+            ensureProposedItemsForShoppingAction(payload, userMessage, requestContext.getSessionContext(), new ArrayList<>());
+            
+            enforceRecipeIngredientConsistency(payload, userMessage);
+            filterPantryStaples(payload.getProposedItems(), userMessage);
+            filterOutOfStock(payload.getProposedItems());
+            filterNonFoodForMealIntent(payload, userMessage);
+            filterExcludedIngredients(payload, userMessage);
+            enforceUserProfileAllergies(payload, userId);
+            semanticAllergyGuardService.enforceSemanticGuard(payload, userId);
+            filterLowQualityMealItems(payload, userMessage);
+            refillProposedItemsIfTooFew(payload, userMessage);
+            syncRecommendedIdsFromProposedItems(payload);
+        }
+        try {
+            filterRecommendedProductIds(payload, userMessage);
+        } catch (Exception e) {
+            log.warn("filterRecommendedProductIds failed: {}", e.getMessage());
+        }
+    }
+
+    public SavedAssistantMessage savePendingAssistantMessage(Long sessionId, Long userId, String userMessage) {
+        return transactionTemplate.execute(status -> {
+            ChatSession session = sessionRepository.findById(sessionId)
+                    .orElseThrow(() -> new RuntimeException("Chat session not found"));
+            int nextInteractionCount = (session.getInteractionCount() != null ? session.getInteractionCount() : 0) + 1;
+            session.setInteractionCount(nextInteractionCount);
+            session.setLastActiveAt(LocalDateTime.now());
+            sessionRepository.save(session);
+
+            ChatMessage aiMsg = ChatMessage.builder()
+                    .session(session).userId(userId).role("ASSISTANT")
+                    .content("...")
+                    .replyStatus(AiOrchestrationService.STATUS_PENDING_ORCHESTRATION)
+                    .build();
+            messageRepository.save(aiMsg);
+
+            return SavedAssistantMessage.builder()
+                    .messageId(aiMsg.getId())
+                    .interactionCount(nextInteractionCount)
+                    .replyStatus(aiMsg.getReplyStatus())
+                    .build();
+        });
+    }
+
+    public String toJson(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            log.warn("Could not serialize to JSON: {}", e.getMessage());
+            return "{}";
+        }
     }
 }
+
 
 
 

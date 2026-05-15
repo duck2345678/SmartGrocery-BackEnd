@@ -14,6 +14,7 @@ public class UserNutritionProfileDto {
     private String healthGoals;
     private String dietaryPreference;
     private String allergies;
+    private String foodConstraints;
     private Double height;
     private Double weight;
     private Double bmi;

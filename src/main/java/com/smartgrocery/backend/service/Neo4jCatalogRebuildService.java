@@ -1,6 +1,5 @@
 package com.smartgrocery.backend.service;
 
-import com.smartgrocery.backend.entity.InventoryStock;
 import com.smartgrocery.backend.entity.Product;
 import com.smartgrocery.backend.entity.ProductVariant;
 import com.smartgrocery.backend.repository.jpa.InventoryStockRepository;

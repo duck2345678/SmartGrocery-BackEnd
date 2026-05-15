@@ -86,4 +86,11 @@ public class NotificationService {
             sendNotification(staff, title, body, type, data);
         }
     }
+
+    @Transactional
+    public void notifyUsers(List<User> users, String title, String body, String type, Map<String, String> data) {
+        for (User user : users) {
+            sendNotification(user, title, body, type, data);
+        }
+    }
 }

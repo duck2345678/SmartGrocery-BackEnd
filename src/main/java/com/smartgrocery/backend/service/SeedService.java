@@ -90,9 +90,6 @@ public class SeedService {
 
     @Transactional
     public void seedData() {
-        // 0. Database Migration (Fix for Supabase/Hibernate column sync)
-        migrateSchema();
-
         // 1. Roles
         if (roleRepository.count() == 0) {
             roleRepository.saveAll(List.of(
@@ -437,11 +434,27 @@ public class SeedService {
         }
     }
 
-    private void migrateSchema() {
+    public void migrateSchema() {
         try {
-            // Check if column exists, if not add it
-            jdbcTemplate.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS is_staple BOOLEAN DEFAULT FALSE");
-            System.out.println(">> Database Migration: Verified/Added is_staple column to products table.");
+            Boolean isStapleExists = jdbcTemplate.queryForObject(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = current_schema()
+                          AND table_name = 'products'
+                          AND column_name = 'is_staple'
+                    )
+                    """,
+                    Boolean.class
+            );
+            if (Boolean.TRUE.equals(isStapleExists)) {
+                System.out.println(">> Database Migration: is_staple column already exists.");
+                return;
+            }
+
+            jdbcTemplate.execute("ALTER TABLE products ADD COLUMN is_staple BOOLEAN DEFAULT FALSE");
+            System.out.println(">> Database Migration: Added is_staple column to products table.");
         } catch (Exception e) {
             System.err.println(">> Database Migration Notice: " + e.getMessage());
         }

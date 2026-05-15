@@ -1,16 +1,18 @@
 package com.smartgrocery.backend.controller;
 
+import com.smartgrocery.backend.dto.*;
 import com.smartgrocery.backend.entity.ChatMessage;
+import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.security.SecurityUtils;
-import com.smartgrocery.backend.service.ai.AiPass2StreamService;
 import com.smartgrocery.backend.service.ai.ChatAssistantService;
-import com.smartgrocery.backend.service.ai.ChatAssistantService.*;
+import com.smartgrocery.backend.service.ai.AiOrchestrationService;
 import com.smartgrocery.backend.service.ai.SseStreamRegistry;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -26,13 +28,15 @@ import java.util.Map;
 public class AiChatController {
 
     private final ChatAssistantService chatAssistantService;
-    private final AiPass2StreamService aiPass2StreamService;
+    private final AiOrchestrationService aiOrchestrationService;
     private final SseStreamRegistry sseStreamRegistry;
 
     @Operation(summary = "Gửi tin nhắn cho AI (MEMM Pipeline)")
     @PostMapping("/chat")
-    public ResponseEntity<ChatResponse> chat(@RequestBody Map<String, Object> body) {
-        Long userId = SecurityUtils.getCurrentUserId();
+    public ResponseEntity<ChatResponse> chat(
+            @AuthenticationPrincipal User user,
+            @RequestBody Map<String, Object> body) {
+        Long userId = user != null ? user.getId() : null;
         String message = body.get("message") != null ? body.get("message").toString().trim() : "";
         if (message.isBlank()) {
             throw new IllegalArgumentException("Message is required");
@@ -43,12 +47,12 @@ public class AiChatController {
             ChatResponse response = chatAssistantService.processChat(userId, sessionId, message);
             return ResponseEntity.ok(response);
         } catch (Exception ex) {
-            log.error("AI chat endpoint failed. Returning degraded fallback response.", ex);
+            log.error("AI chat endpoint failed for user {}: {}", userId, ex.getMessage(), ex);
             return ResponseEntity.ok(ChatResponse.builder()
                     .sessionId(sessionId)
                     .reply("Mình chưa hoàn tất được danh sách lúc này, nhưng yêu cầu của bạn đã được ghi nhận. Vui lòng thử lại sau ít phút.")
                     .fallbackReply("Mình chưa hoàn tất được danh sách lúc này, nhưng yêu cầu của bạn đã được ghi nhận. Vui lòng thử lại sau ít phút.")
-                    .replyStatus(AiPass2StreamService.STATUS_FALLBACK)
+                    .replyStatus(AiOrchestrationService.STATUS_FALLBACK)
                     .recommendedProductIds(List.of())
                     .proposedItems(List.of())
                     .removeVariantIds(List.of())
@@ -71,17 +75,17 @@ public class AiChatController {
     @GetMapping("/chat/messages/{messageId}/stream")
     public SseEmitter streamChatMessage(@PathVariable Long messageId) {
         Long userId = SecurityUtils.getCurrentUserId();
-        ChatMessage message = aiPass2StreamService.getMessageForStream(messageId, userId);
+        ChatMessage message = aiOrchestrationService.getMessageForStream(messageId, userId);
         SseEmitter emitter = sseStreamRegistry.register(messageId);
 
-        if (AiPass2StreamService.STATUS_DONE.equals(message.getReplyStatus())
-                || AiPass2StreamService.STATUS_FALLBACK.equals(message.getReplyStatus())) {
+        if (AiOrchestrationService.STATUS_DONE.equals(message.getReplyStatus())
+                || AiOrchestrationService.STATUS_FALLBACK.equals(message.getReplyStatus())) {
             String finalReply = message.getFinalReply() != null ? message.getFinalReply() : message.getContent();
             sseStreamRegistry.emitDelta(messageId, finalReply);
             sseStreamRegistry.emitDone(
                     messageId,
                     finalReply,
-                    AiPass2StreamService.STATUS_FALLBACK.equals(message.getReplyStatus())
+                    AiOrchestrationService.STATUS_FALLBACK.equals(message.getReplyStatus())
             );
         }
 

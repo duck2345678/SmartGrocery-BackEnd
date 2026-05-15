@@ -8,6 +8,7 @@ import com.smartgrocery.backend.dto.AdminProductUpsertRequest;
 import com.smartgrocery.backend.dto.AdminProductVariantRequest;
 import com.smartgrocery.backend.dto.BrandDto;
 import com.smartgrocery.backend.dto.CategoryDto;
+import com.smartgrocery.backend.dto.AdminProductDiscountRequest;
 import com.smartgrocery.backend.dto.ProductDto;
 import com.smartgrocery.backend.dto.ProductVariantDto;
 import com.smartgrocery.backend.entity.Category;
@@ -17,6 +18,8 @@ import com.smartgrocery.backend.entity.ProductVariant;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.entity.Warehouse;
 import com.smartgrocery.backend.repository.jpa.CategoryRepository;
+import com.smartgrocery.backend.repository.jpa.CartItemRepository;
+import com.smartgrocery.backend.repository.jpa.WishlistItemRepository;
 import com.smartgrocery.backend.repository.jpa.InventoryStockRepository;
 import com.smartgrocery.backend.repository.jpa.ProductRepository;
 import com.smartgrocery.backend.repository.jpa.ProductVariantRepository;
@@ -68,21 +71,62 @@ public class AdminProductService {
     private final SupabaseStorageService supabaseStorageService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+    private final CartItemRepository cartItemRepository;
+    private final WishlistItemRepository wishlistItemRepository;
+    private final NotificationService notificationService;
 
     @Value("${app.upload.products-max-bytes:2097152}")
     private long maxImageBytes;
 
     @Transactional(value = "transactionManager", readOnly = true)
-    public Page<ProductDto> search(String search, Long categoryId, String status, Pageable pageable) {
+    public Page<ProductDto> search(String search, Long categoryId, String status, Boolean discounted, Pageable pageable) {
         Pageable safePageable = PageRequest.of(
                 Math.max(pageable.getPageNumber(), 0),
                 Math.min(Math.max(pageable.getPageSize(), 1), 100),
                 pageable.getSort().isSorted() ? pageable.getSort() : Sort.by(Sort.Direction.DESC, "updatedAt")
         );
-        log.info("Admin product search search={} categoryId={} status={} page={} size={}",
-                search, categoryId, status, safePageable.getPageNumber(), safePageable.getPageSize());
-        Page<Product> page = productRepository.findAll(productSpec(search, categoryId, status), safePageable);
+        log.info("Admin product search search={} categoryId={} status={} discounted={} page={} size={}",
+                search, categoryId, status, discounted, safePageable.getPageNumber(), safePageable.getPageSize());
+        Page<Product> page = productRepository.findAll(productSpec(search, categoryId, status, discounted), safePageable);
         return toDtoPage(page);
+    }
+
+    @Transactional("transactionManager")
+    public int updateDiscounts(User actor, AdminProductDiscountRequest req) {
+        requireActor(actor);
+        if (req.getVariantIds() == null || req.getVariantIds().isEmpty()) return 0;
+        
+        List<ProductVariant> variants = productVariantRepository.findAllById(req.getVariantIds());
+        int count = 0;
+        for (ProductVariant v : variants) {
+            // Store original price in compareAtPrice if not already set or if explicitly resetting
+            if (v.getCompareAtPrice() == null || v.getCompareAtPrice().compareTo(BigDecimal.ZERO) <= 0) {
+                v.setCompareAtPrice(v.getNetPrice());
+            }
+
+            if (req.getNewNetPrice() != null) {
+                v.setNetPrice(req.getNewNetPrice());
+            } else if (req.getDiscountPercentage() != null) {
+                BigDecimal factor = BigDecimal.ONE.subtract(req.getDiscountPercentage().divide(new BigDecimal(100)));
+                v.setNetPrice(v.getCompareAtPrice().multiply(factor));
+            } else if (req.getFixedDiscountAmount() != null) {
+                v.setNetPrice(v.getCompareAtPrice().subtract(req.getFixedDiscountAmount()));
+            }
+            
+            if (req.getFlashSaleEndsAt() != null) {
+                v.setFlashSaleEndsAt(req.getFlashSaleEndsAt());
+                triggerFlashSaleNotification(v);
+            }
+            
+            productVariantRepository.save(v);
+            count++;
+            
+            // Sync to Neo4j if it's the primary variant (simplified sync)
+            syncToNeo4j(v.getProduct());
+        }
+        
+        auditService.log(actor, "PRODUCT_DISCOUNT_BATCH", "VARIANT", 0L, "Batch update discounts for " + count + " variants", null, snapshot(req));
+        return count;
     }
 
     @Transactional(value = "transactionManager", readOnly = true)
@@ -271,10 +315,10 @@ public class AdminProductService {
     }
 
     @Transactional("transactionManager")
-    public byte[] exportExcel(User actor, String search, Long categoryId, String status) {
+    public byte[] exportExcel(User actor, String search, Long categoryId, String status, Boolean discounted) {
         requireActor(actor);
         List<Product> products = productRepository.findAll(
-                productSpec(search, categoryId, status),
+                productSpec(search, categoryId, status, discounted),
                 Sort.by(Sort.Direction.DESC, "updatedAt")
         );
         List<ProductDto> rows = toDtos(products);
@@ -316,7 +360,8 @@ public class AdminProductService {
                             "rows", rowIndex - 1,
                             "search", search != null ? search : "",
                             "categoryId", categoryId != null ? categoryId : 0,
-                            "status", status != null ? status : ""
+                            "status", status != null ? status : "",
+                            "discounted", discounted != null ? discounted : false
                     )));
             log.info("Admin product export rows={} actorId={}", rowIndex - 1, actor.getId());
             return out.toByteArray();
@@ -325,9 +370,8 @@ public class AdminProductService {
         }
     }
 
-    private Specification<Product> productSpec(String search, Long categoryId, String status) {
+    private Specification<Product> productSpec(String search, Long categoryId, String status, Boolean discounted) {
         return (root, query, cb) -> {
-            if (query != null) query.distinct(true);
             List<Predicate> predicates = new ArrayList<>();
             if (status != null && !status.isBlank()) {
                 predicates.add(cb.equal(cb.upper(root.get("status")), normalizeProductStatus(status, null, true)));
@@ -344,13 +388,22 @@ public class AdminProductService {
                         cb.like(cb.lower(root.get("productCode")), like)
                 ));
             }
+            if (Boolean.TRUE.equals(discounted)) {
+                jakarta.persistence.criteria.Join<Product, ProductVariant> variants = root.join("variants");
+                predicates.add(cb.and(
+                    cb.isNotNull(variants.get("compareAtPrice")),
+                    cb.gt(variants.get("compareAtPrice"), variants.get("netPrice"))
+                ));
+                query.distinct(true);
+            }
             return cb.and(predicates.toArray(Predicate[]::new));
         };
     }
 
     private Page<ProductDto> toDtoPage(Page<Product> page) {
+        if (page.isEmpty()) return Page.empty(page.getPageable());
         List<ProductDto> dtos = toDtos(page.getContent());
-        Map<Long, ProductDto> byId = dtos.stream().collect(Collectors.toMap(ProductDto::getId, p -> p));
+        Map<Long, ProductDto> byId = dtos.stream().collect(Collectors.toMap(ProductDto::getId, p -> p, (a, b) -> a));
         return page.map(p -> byId.get(p.getId()));
     }
 
@@ -419,6 +472,7 @@ public class AdminProductService {
                         .vatPercent(v.getVatPercent())
                         .status(v.getStatus())
                         .stock(stockByVariantId.getOrDefault(v.getId(), 0))
+                        .flashSaleEndsAt(v.getFlashSaleEndsAt())
                         .build()).toList())
                 .build();
     }
@@ -617,6 +671,40 @@ public class AdminProductService {
             log.info("AI Sync: Updated ProductNode ID: {} - {}", product.getId(), product.getName());
         } catch (Exception e) {
             log.warn("AI Sync failed for product {}: {}", product.getId(), e.getMessage());
+        }
+    }
+
+    private void triggerFlashSaleNotification(ProductVariant variant) {
+        Product product = variant.getProduct();
+        String title = "🔥 FLASH SALE: " + product.getName();
+        String body = "Sản phẩm bạn yêu thích đang giảm giá cực sốc! Chỉ còn " + 
+                     variant.getNetPrice().setScale(0, java.math.RoundingMode.HALF_UP).toString() + "₫. Mua ngay kẻo lỡ!";
+        
+        Set<User> interestedUsers = new HashSet<>();
+        
+        // 1. From Carts
+        try {
+            interestedUsers.addAll(cartItemRepository.findByVariant_Product_Id(product.getId())
+                .stream()
+                .map(ci -> ci.getCart().getUser())
+                .collect(Collectors.toSet()));
+        } catch (Exception e) {
+            log.error("Error fetching cart users for notification", e);
+        }
+        
+        // 2. From Wishlist
+        try {
+            interestedUsers.addAll(wishlistItemRepository.findByProduct_Id(product.getId())
+                .stream()
+                .map(wi -> wi.getWishlist().getUser())
+                .collect(Collectors.toSet()));
+        } catch (Exception e) {
+            log.error("Error fetching wishlist users for notification", e);
+        }
+        
+        if (!interestedUsers.isEmpty()) {
+            notificationService.notifyUsers(new ArrayList<>(interestedUsers), title, body, "FLASH_SALE", 
+                Map.of("productId", product.getId().toString()));
         }
     }
 }

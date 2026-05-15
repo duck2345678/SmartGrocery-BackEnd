@@ -37,6 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings("unchecked")
 class AdminProductServiceTest {
 
     @Mock CategoryRepository categoryRepository;
@@ -47,6 +48,9 @@ class AdminProductServiceTest {
     @Mock SupabaseStorageService supabaseStorageService;
     @Mock AuditService auditService;
     @Mock ProductNodeRepository productNodeRepository;
+    @Mock com.smartgrocery.backend.repository.jpa.CartItemRepository cartItemRepository;
+    @Mock com.smartgrocery.backend.repository.jpa.WishlistItemRepository wishlistItemRepository;
+    @Mock NotificationService notificationService;
 
     private AdminProductService service;
     private User actor;
@@ -63,7 +67,10 @@ class AdminProductServiceTest {
                 productNodeRepository,
                 supabaseStorageService,
                 auditService,
-                new ObjectMapper()
+                new ObjectMapper(),
+                cartItemRepository,
+                wishlistItemRepository,
+                notificationService
         );
         ReflectionTestUtils.setField(service, "maxImageBytes", 2L * 1024L * 1024L);
 
@@ -151,7 +158,7 @@ class AdminProductServiceTest {
             @Override public Long getTotalAvailable() { return 12L; }
         }));
 
-        byte[] bytes = service.exportExcel(actor, null, null, null);
+        byte[] bytes = service.exportExcel(actor, null, null, null, null);
 
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
             var sheet = workbook.getSheet("Products");
@@ -181,7 +188,7 @@ class AdminProductServiceTest {
         when(productVariantRepository.findByProduct_IdInAndStatusNot(anyList(), eq("DELETED"))).thenReturn(List.of());
 
         long started = System.nanoTime();
-        var page = service.search(null, null, "ACTIVE", PageRequest.of(0, 1000));
+        var page = service.search(null, null, "ACTIVE", null, PageRequest.of(0, 1000));
         long elapsedMillis = (System.nanoTime() - started) / 1_000_000;
 
         assertThat(page.getTotalElements()).isEqualTo(1000);

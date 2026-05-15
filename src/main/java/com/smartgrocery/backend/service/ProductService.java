@@ -46,22 +46,37 @@ public class ProductService {
         boolean hasCategory = categoryId != null;
         String trimmedSearch = search != null ? search.trim() : "";
 
-        if (hasSearch && hasCategory) {
-            page = productRepository.findAll((root, query, cb) -> cb.and(
-                    cb.equal(cb.upper(root.get("status")), "ACTIVE"),
-                    cb.like(cb.lower(root.get("name")), "%" + trimmedSearch.toLowerCase() + "%"),
-                    cb.equal(root.get("category").get("id"), categoryId)
-            ), pageable);
-        } else if (hasSearch) {
-            page = productRepository.findAll((root, query, cb) -> cb.and(
-                    cb.equal(cb.upper(root.get("status")), "ACTIVE"),
-                    cb.like(cb.lower(root.get("name")), "%" + trimmedSearch.toLowerCase() + "%")
-            ), pageable);
-        } else if (hasCategory) {
-            page = productRepository.findAll((root, query, cb) -> cb.and(
-                    cb.equal(cb.upper(root.get("status")), "ACTIVE"),
-                    cb.equal(root.get("category").get("id"), categoryId)
-            ), pageable);
+        if (hasSearch || hasCategory) {
+            page = productRepository.findAll((root, query, cb) -> {
+                List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+                
+                // Base filter: must be ACTIVE
+                predicates.add(cb.equal(cb.upper(root.get("status")), "ACTIVE"));
+
+                if (hasSearch) {
+                    String pattern = "%" + trimmedSearch.toLowerCase(java.util.Locale.ROOT) + "%";
+                    
+                    // Join with variants
+                    jakarta.persistence.criteria.Join<Product, ProductVariant> variantsJoin = root.join("variants", jakarta.persistence.criteria.JoinType.LEFT);
+                    
+                    predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("name")), pattern),
+                        cb.like(cb.lower(root.get("productCode")), pattern),
+                        cb.like(cb.lower(root.get("description")), pattern),
+                        cb.like(cb.lower(root.get("shortDescription")), pattern),
+                        cb.like(cb.lower(root.get("category").get("name")), pattern),
+                        cb.like(cb.lower(variantsJoin.get("variantName")), pattern),
+                        cb.like(cb.lower(variantsJoin.get("sku")), pattern)
+                    ));
+                    query.distinct(true);
+                }
+
+                if (hasCategory) {
+                    predicates.add(cb.equal(root.get("category").get("id"), categoryId));
+                }
+
+                return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+            }, pageable);
         } else {
             page = productRepository.findAll((root, query, cb) -> cb.equal(cb.upper(root.get("status")), "ACTIVE"), pageable);
         }
@@ -168,6 +183,7 @@ public class ProductService {
                         .vatPercent(v.getVatPercent())
                         .status(v.getStatus())
                         .stock(stockByVariantId.getOrDefault(v.getId(), 0))
+                        .flashSaleEndsAt(v.getFlashSaleEndsAt())
                         .build()).collect(Collectors.toList()))
                 .build();
     }
