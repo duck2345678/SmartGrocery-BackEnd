@@ -36,6 +36,15 @@ public class CartController {
         return ResponseEntity.ok(cartService.addToCart(user, request));
     }
 
+    @Operation(summary = "Thêm nhiều sản phẩm vào giỏ hàng cùng lúc (AI Chat batch)")
+    @PostMapping("/batch-add")
+    public ResponseEntity<CartDto> batchAddToCart(
+            @AuthenticationPrincipal User user,
+            @RequestBody java.util.List<AddToCartRequest> requests
+    ) {
+        return ResponseEntity.ok(cartService.batchAddToCart(user, requests));
+    }
+
     @Operation(summary = "Xóa sản phẩm khỏi giỏ hàng")
     @DeleteMapping("/item/{cartItemId}")
     public ResponseEntity<CartDto> removeCartItem(

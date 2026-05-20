@@ -22,12 +22,46 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/register")
-    @Operation(summary = "Traditional user registration")
-    public ResponseEntity<AuthResponse> register(
+    @Operation(summary = "Register new customer (returns pending verification)")
+    public ResponseEntity<RegistrationPendingResponse> register(
             @RequestBody RegisterRequest request,
             @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint
     ) {
         return ResponseEntity.ok(authService.register(request, deviceFingerprint));
+    }
+
+    @PostMapping("/verify-email")
+    @Operation(summary = "Verify email with OTP and receive JWT tokens")
+    public ResponseEntity<AuthResponse> verifyEmail(
+            @RequestBody VerifyEmailRequest request,
+            @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint
+    ) {
+        return ResponseEntity.ok(authService.verifyEmail(request, deviceFingerprint));
+    }
+
+    @PostMapping("/resend-email-verification")
+    @Operation(summary = "Resend email verification OTP")
+    public ResponseEntity<Map<String, String>> resendEmailVerification(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        if (email == null || email.isBlank()) {
+            throw new RuntimeException("Email là bắt buộc.");
+        }
+        authService.resendEmailVerification(email.trim());
+        return ResponseEntity.ok(Map.of("message", "Mã xác nhận mới đã được gửi đến email của bạn."));
+    }
+
+    @PostMapping("/forgot-password")
+    @Operation(summary = "Request password reset OTP via email")
+    public ResponseEntity<Map<String, String>> forgotPassword(@RequestBody ForgotPasswordRequest request) {
+        authService.forgotPassword(request.getEmail());
+        return ResponseEntity.ok(Map.of("message", "Nếu email tồn tại trong hệ thống, mã xác nhận đã được gửi."));
+    }
+
+    @PostMapping("/reset-password")
+    @Operation(summary = "Reset password using email OTP")
+    public ResponseEntity<Map<String, String>> resetPassword(@RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok(Map.of("message", "Mật khẩu đã được đặt lại thành công. Vui lòng đăng nhập lại."));
     }
 
     @PostMapping("/login")
@@ -46,9 +80,7 @@ public class AuthController {
             @RequestHeader(value = "X-Device-Fingerprint", required = false) String deviceFingerprint
     ) {
         String idToken = request.get("idToken");
-        if (idToken == null || idToken.isEmpty()) {
-            throw new RuntimeException("Firebase ID Token is required");
-        }
+        if (idToken == null || idToken.isEmpty()) throw new RuntimeException("Firebase ID Token is required");
         return ResponseEntity.ok(authService.loginWithFirebase(idToken, deviceFingerprint));
     }
 
@@ -77,9 +109,7 @@ public class AuthController {
     @GetMapping("/me")
     @Operation(summary = "Get current authenticated user profile")
     public ResponseEntity<UserDto> getCurrentUser(@AuthenticationPrincipal User user) {
-        if (user == null) {
-            throw new RuntimeException("Not authenticated");
-        }
+        if (user == null) throw new RuntimeException("Not authenticated");
         return ResponseEntity.ok(authService.getCurrentUserDto(user.getId()));
     }
 
@@ -89,9 +119,7 @@ public class AuthController {
             @AuthenticationPrincipal User user,
             @RequestBody Map<String, String> updates
     ) {
-        if (user == null) {
-            throw new RuntimeException("Not authenticated");
-        }
+        if (user == null) throw new RuntimeException("Not authenticated");
         return ResponseEntity.ok(authService.updateUserProfile(user, updates));
     }
 }

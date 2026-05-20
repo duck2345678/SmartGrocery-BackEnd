@@ -42,4 +42,7 @@ public interface InventoryStockRepository extends JpaRepository<InventoryStock, 
     List<VariantStockSum> sumAvailableByVariantIds(@Param("variantIds") List<Long> variantIds);
 
     List<InventoryStock> findAllByVariant_IdIn(List<Long> variantIds);
+
+    @Query("select distinct s.variant.product.name from InventoryStock s where s.availableQuantity is null or s.availableQuantity <= 0")
+    List<String> findOutOfStockProductNames();
 }

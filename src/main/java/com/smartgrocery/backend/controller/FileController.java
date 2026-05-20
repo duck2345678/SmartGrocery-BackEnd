@@ -25,10 +25,18 @@ public class FileController {
     @Operation(summary = "Upload file (multipart) and return public URL")
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, String>> upload(@RequestPart("file") MultipartFile file) {
-        if (!SecurityUtils.hasAnyRole("STAFF", "ADMIN")) {
+        if (!SecurityUtils.hasAnyRole("CUSTOMER", "STAFF", "ADMIN")) {
             throw new AccessDeniedException("Access denied");
         }
-        String url = storageService.upload(file, "staff");
+        String folder = "misc";
+        if (SecurityUtils.hasAnyRole("ADMIN")) {
+            folder = "admin";
+        } else if (SecurityUtils.hasAnyRole("STAFF")) {
+            folder = "staff";
+        } else if (SecurityUtils.hasAnyRole("CUSTOMER")) {
+            folder = "avatars";
+        }
+        String url = storageService.upload(file, folder);
         return ResponseEntity.ok(Map.of("url", url));
     }
 }

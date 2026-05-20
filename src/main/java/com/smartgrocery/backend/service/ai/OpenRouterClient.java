@@ -69,7 +69,7 @@ public class OpenRouterClient {
             ObjectNode body = buildRequestBody(systemPrompt, messages, tools, finalModel);
 
             return webClient.post()
-                    .uri("/chat/completions")
+                    .uri("chat/completions")
                     .header("Authorization", "Bearer " + apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body.toString())
@@ -78,14 +78,18 @@ public class OpenRouterClient {
                     .timeout(timeout) // Thêm timeout cứng cho request
                     .map(this::parseResponse)
                     .doOnError(WebClientResponseException.class, e -> {
-                        if (e.getStatusCode().value() == 429) {
-                            log.warn("Rate limited on key index {}, rotating...", keyIndex.get());
+                        int code = e.getStatusCode().value();
+                        String responseErrBody = e.getResponseBodyAsString();
+                        log.error("AI HTTP Error {}: {}", code, responseErrBody);
+                        if (code == 429 || code == 503) {
+                            log.warn("Encountered error code {} on key index {}, rotating key...", code, keyIndex.get());
                             rotateKey();
                         }
                     });
-        }).retryWhen(Retry.backoff(2, Duration.ofSeconds(1)) // Giảm số lần retry cho Pass 1 để tiết kiệm thời gian
+        }).retryWhen(Retry.backoff(2, Duration.ofSeconds(1))
                 .filter(e -> e instanceof WebClientResponseException &&
-                        ((WebClientResponseException) e).getStatusCode().value() == 429)
+                        (((WebClientResponseException) e).getStatusCode().value() == 429 ||
+                         ((WebClientResponseException) e).getStatusCode().value() == 503))
                 .doBeforeRetry(signal -> log.info("Retrying AI request ({}), attempt {}", finalModel, signal.totalRetries() + 1))
         ).onErrorResume(e -> {
             if (e instanceof java.util.concurrent.TimeoutException || e.getCause() instanceof java.util.concurrent.TimeoutException) {
@@ -106,14 +110,14 @@ public class OpenRouterClient {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", modelName);
         body.put("temperature", 0.3); // Set low temperature for strict instruction following
-        body.put("max_tokens", 2048);
+        body.put("max_tokens", 4096);
         
-        // Only force JSON if no tools are provided, as tools use function calling
-        if (tools == null || tools.isEmpty()) {
+        // Only force JSON if no tools are provided AND the system prompt explicitly requests JSON
+        if ((tools == null || tools.isEmpty()) && systemPrompt != null && systemPrompt.toLowerCase().contains("json")) {
             ObjectNode responseFormat = objectMapper.createObjectNode();
             responseFormat.put("type", "json_object");
             body.set("response_format", responseFormat);
-        } else {
+        } else if (tools != null && !tools.isEmpty()) {
             ArrayNode toolsArray = body.putArray("tools");
             tools.forEach(toolsArray::add);
             // Let the model decide whether to call a tool or reply
@@ -127,10 +131,18 @@ public class OpenRouterClient {
         sysMsg.put("content", systemPrompt);
         messagesArray.add(sysMsg);
 
-        // Conversation history
+        // Conversation history - Filter to make sure we only start sending when the first user message is found!
+        boolean started = false;
         for (Map<String, String> msg : messages) {
+            String role = msg.get("role");
+            if (!started && !"user".equalsIgnoreCase(role)) {
+                // Skip any leading assistant/system messages in the chat history
+                continue;
+            }
+            started = true;
+
             ObjectNode m = objectMapper.createObjectNode();
-            m.put("role", msg.get("role"));
+            m.put("role", role);
             m.put("content", msg.getOrDefault("content", ""));
             if (msg.containsKey("tool_call_id")) {
                 m.put("tool_call_id", msg.get("tool_call_id"));
@@ -157,7 +169,7 @@ public class OpenRouterClient {
         body.put("stream", true);
 
         return webClient.post()
-                .uri("/chat/completions")
+                .uri("chat/completions")
                 .header("Authorization", "Bearer " + apiKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body.toString())

@@ -8,6 +8,7 @@ import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.repository.jpa.AttendanceRecordRepository;
 import com.smartgrocery.backend.repository.jpa.ShiftRequestRepository;
 import com.smartgrocery.backend.repository.jpa.ShiftScheduleRepository;
+import com.smartgrocery.backend.repository.jpa.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -30,6 +31,7 @@ public class AttendanceService {
     private final AttendanceRecordRepository attendanceRecordRepository;
     private final ShiftScheduleRepository shiftScheduleRepository;
     private final ShiftRequestRepository shiftRequestRepository;
+    private final OrderRepository orderRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
 
     @Value("${app.attendance.early-buffer-minutes:15}")
@@ -173,6 +175,13 @@ public class AttendanceService {
                 .filter(r -> r.getCheckInAt() != null && r.getCheckOutAt() == null)
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy ca làm việc đang mở."));
+
+        // Release any active orders in preparation for this staff
+        orderRepository.releaseAllAssignmentsForStaff(
+                user.getId(),
+                "PENDING",
+                List.of("ASSIGNED", "PICKING")
+        );
 
         List<ShiftConfigDto.ShiftBlock> blocks = SHIFT_CONFIG.get(currentRecord.getShiftType());
         ShiftConfigDto.ShiftBlock currentBlockConfig = findBlockByNumber(blocks, currentRecord.getBlockNumber());
@@ -336,6 +345,14 @@ public class AttendanceService {
 
             String autoNote = "[Hệ thống tự động đóng ca lúc " + now.toLocalTime().withNano(0) + " — nhân viên quên bấm ra ca]";
             record.setNote(record.getNote() == null ? autoNote : record.getNote() + "\n" + autoNote);
+
+            if (record.getUser() != null && record.getUser().getId() != null) {
+                orderRepository.releaseAllAssignmentsForStaff(
+                        record.getUser().getId(),
+                        "PENDING",
+                        List.of("ASSIGNED", "PICKING")
+                );
+            }
 
             attendanceRecordRepository.save(record);
             closedCount++;

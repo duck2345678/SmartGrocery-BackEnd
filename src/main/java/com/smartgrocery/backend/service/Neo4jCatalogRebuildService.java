@@ -471,7 +471,7 @@ public class Neo4jCatalogRebuildService {
     }
 
     private String buildSearchText(Product product, List<ProductVariant> variants, String categoryName, String familyTags) {
-        return String.join(" ",
+        String rawText = String.join(" ",
                 nullToEmpty(product.getProductCode()),
                 nullToEmpty(product.getName()),
                 nullToEmpty(product.getShortDescription()),
@@ -482,6 +482,7 @@ public class Neo4jCatalogRebuildService {
                 variants.stream().map(v -> nullToEmpty(v.getVariantName())).collect(Collectors.joining(" ")),
                 familyTags
         );
+        return rawText + " " + normalize(rawText);
     }
 
     private Set<Long> fetchGraphProductIds() {

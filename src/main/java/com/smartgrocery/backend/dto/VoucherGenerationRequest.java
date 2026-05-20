@@ -23,4 +23,6 @@ public class VoucherGenerationRequest {
     private LocalDateTime validUntil;
     private Integer usageLimitPerVoucher;
     private String description;
+    private Boolean hidden;
+    private String revealTrigger;
 }

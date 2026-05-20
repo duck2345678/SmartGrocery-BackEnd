@@ -22,4 +22,11 @@ public class VoucherDto {
     private BigDecimal maxDiscountAmount;
     private LocalDateTime validUntil;
     private Boolean active;
+    private Boolean hidden;
+    private String revealTrigger;
+    private Long assignedUserId;
+    private Long unlockedByOrderId;
+    private Integer usageLimitPerVoucher;
+    private Integer usedCount;
+    private String status;
 }

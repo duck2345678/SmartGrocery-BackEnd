@@ -15,4 +15,14 @@ public class OtpVerification {
     private String status;
     private LocalDateTime expiresAt;
     private LocalDateTime createdAt;
+
+    @Builder.Default
+    @Column(name = "attempt_count", nullable = false)
+    private Integer attemptCount = 0;
+
+    @Column(name = "consumed_at")
+    private LocalDateTime consumedAt;
+
+    @Column(name = "last_sent_at")
+    private LocalDateTime lastSentAt;
 }

@@ -65,6 +65,9 @@ public class OrderService {
     @Autowired
     private UserVoucherUsageRepository userVoucherUsageRepository;
 
+    @Autowired
+    private VoucherService voucherService;
+
     @Transactional(rollbackFor = Exception.class)
     public OrderDto createOrder(User user, CreateOrderRequest request) {
 
@@ -84,6 +87,7 @@ public class OrderService {
                 throw new RuntimeException("Giỏ hàng rỗng, không thể tạo đơn hàng");
             }
 
+            CartAiMetadata aiMetadata = resolveCartAiMetadata(cartItems);
             List<OrderItemRequest> fromCart = cartItems.stream()
                     .map(ci -> OrderItemRequest.builder()
                             .variantId(ci.getVariant().getId())
@@ -91,6 +95,24 @@ public class OrderService {
                             .build())
                     .collect(Collectors.toList());
             request.setItems(fromCart);
+            request.setAiGenerated(aiMetadata.aiGenerated());
+            request.setAiListCode(aiMetadata.aiListCode());
+            request.setAiListName(aiMetadata.aiListName());
+        } else {
+            Cart cart = cartRepository.findByUserId(user.getId()).orElse(null);
+            if (cart != null) {
+                List<CartItem> cartItems = cartItemRepository.findByCart_Id(cart.getId());
+                java.util.Set<Long> orderedVariantIds = request.getItems().stream()
+                        .map(OrderItemRequest::getVariantId)
+                        .collect(Collectors.toSet());
+                List<CartItem> matchingCartItems = cartItems.stream()
+                        .filter(ci -> orderedVariantIds.contains(ci.getVariant().getId()))
+                        .collect(Collectors.toList());
+                CartAiMetadata aiMetadata = resolveCartAiMetadata(matchingCartItems);
+                request.setAiGenerated(aiMetadata.aiGenerated());
+                request.setAiListCode(aiMetadata.aiListCode());
+                request.setAiListName(aiMetadata.aiListName());
+            }
         }
 
         LocalDateTime now = LocalDateTime.now();
@@ -110,6 +132,9 @@ public class OrderService {
                 .paymentMethod(request.getPaymentMethod())
                 .paymentStatus("UNPAID")
                 .customerNote(request.getCustomerNote())
+                .aiGenerated(Boolean.TRUE.equals(request.getAiGenerated()))
+                .aiListCode(request.getAiListCode())
+                .aiListName(request.getAiListName())
                 .subtotal(BigDecimal.ZERO)
                 .shippingFee(BigDecimal.valueOf(15000))
                 .totalAmount(BigDecimal.ZERO)
@@ -190,9 +215,16 @@ public class OrderService {
         savedOrder.setTotalAmount(finalAmount);
         orderRepository.save(savedOrder);
 
-        // 6. Sync: Clear DB Cart for this user
+        // 6. Sync: Clear DB Cart for purchased items only
         cartRepository.findByUserId(user.getId()).ifPresent(cart -> {
-            cartItemRepository.deleteAll(cartItemRepository.findByCart_Id(cart.getId()));
+            List<CartItem> cartItems = cartItemRepository.findByCart_Id(cart.getId());
+            java.util.Set<Long> purchasedVariantIds = request.getItems().stream()
+                    .map(OrderItemRequest::getVariantId)
+                    .collect(Collectors.toSet());
+            List<CartItem> purchasedCartItems = cartItems.stream()
+                    .filter(ci -> purchasedVariantIds.contains(ci.getVariant().getId()))
+                    .collect(Collectors.toList());
+            cartItemRepository.deleteAll(purchasedCartItems);
         });
 
         // 7. Create Initial Payment Record
@@ -205,34 +237,22 @@ public class OrderService {
         paymentRepository.save(payment);
 
         // 8. Auto-dispatch: place the order into the staff queue first
-        boolean assigned = autoOrderDispatchService != null && autoOrderDispatchService.tryAutoAssign(savedOrder.getId());
-
-        // 9. Fallback notify all staff if no assignee is available
-        try {
-            if (!assigned) {
-                List<User> staffMembers = userRepository.findByRole_NameAndStatus("STAFF", "ACTIVE");
-                notificationService.notifyStaff(
-                        "Đơn hàng mới: " + savedOrder.getOrderNumber(),
-                        "Khách hàng " + savedOrder.getUser().getFullName() + " vừa đặt một đơn hàng mới.",
-                        "NEW_ORDER",
-                        Map.of("route", "/(staff)/lease-queue", "type", "NEW_ORDER"),
-                        staffMembers
-                );
-            }
-        } catch (Exception e) {
-            // Don't fail the order if notification fails
+        if (autoOrderDispatchService != null) {
+            autoOrderDispatchService.tryAutoAssign(savedOrder.getId());
         }
 
         return mapToDto(savedOrder);
     }
 
+    @Transactional(readOnly = true)
     public List<OrderDto> getUserOrders(Long userId) {
         SecurityUtils.verifyOwnershipOrAdmin(userId);
-        return orderRepository.findByUser_Id(userId).stream()
+        return orderRepository.findByUser_IdOrderByCreatedAtDesc(userId).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public OrderDto getOrderDetail(Long userId, Long orderId) {
         SecurityUtils.verifyOwnershipOrAdmin(userId);
         Order order = orderRepository.findById(orderId)
@@ -314,12 +334,16 @@ public class OrderService {
                 .assignedAt(order.getAssignedAt())
                 .pickedAt(order.getPickedAt())
                 .deliveredAt(order.getDeliveredAt())
+                .aiGenerated(order.getAiGenerated())
+                .aiListCode(order.getAiListCode())
+                .aiListName(order.getAiListName())
+                .rewardVoucher(order.getRewardVoucher() != null ? voucherService.toDtoPublic(order.getRewardVoucher()) : null)
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .items(order.getOrderItems() != null ? order.getOrderItems().stream().map(item -> {
                     return OrderItemDto.builder()
                         .id(item.getId())
-                        .variantId(item.getVariant().getId())
+                        .variantId(item.getVariant() != null ? item.getVariant().getId() : null)
                         .productName(item.getProductName())
                         .variantName(item.getVariantName())
                         .sku(item.getSku())
@@ -332,7 +356,7 @@ public class OrderService {
                         .isSubstituted(item.getIsSubstituted())
                         .substitutedVariantId(item.getSubstitutedVariant() != null ? item.getSubstitutedVariant().getId() : null)
                         .substitutionReason(item.getSubstitutionReason())
-                        .imageUrl(item.getVariant().getProduct().getImage())
+                        .imageUrl(item.getVariant() != null && item.getVariant().getProduct() != null ? item.getVariant().getProduct().getImage() : null)
                         .build();
                 }).collect(Collectors.toList()) : null)
                 .build();
@@ -361,7 +385,7 @@ public class OrderService {
         if (subtotal.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
         BigDecimal value = voucher.getDiscountValue() != null ? voucher.getDiscountValue() : BigDecimal.ZERO;
         BigDecimal discount;
-        if ("PERCENTAGE".equalsIgnoreCase(voucher.getDiscountType())) {
+        if ("PERCENTAGE".equalsIgnoreCase(voucher.getDiscountType()) || "PERCENT".equalsIgnoreCase(voucher.getDiscountType())) {
             discount = subtotal.multiply(value).divide(BigDecimal.valueOf(100));
         } else {
             discount = value;
@@ -382,4 +406,23 @@ public class OrderService {
         usage.setUpdatedAt(LocalDateTime.now());
         userVoucherUsageRepository.save(usage);
     }
+
+    private CartAiMetadata resolveCartAiMetadata(List<CartItem> cartItems) {
+        CartItem aiItem = cartItems.stream()
+                .filter(item -> "AI".equalsIgnoreCase(item.getSource()))
+                .findFirst()
+                .orElse(null);
+        if (aiItem == null) {
+            return new CartAiMetadata(false, null, null);
+        }
+        return new CartAiMetadata(true, blankToNull(aiItem.getAiListCode()), blankToNull(aiItem.getAiListName()));
+    }
+
+    private String blankToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private record CartAiMetadata(boolean aiGenerated, String aiListCode, String aiListName) {}
 }

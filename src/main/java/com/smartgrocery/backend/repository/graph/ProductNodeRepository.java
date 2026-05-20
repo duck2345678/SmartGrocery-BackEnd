@@ -38,6 +38,36 @@ public interface ProductNodeRepository extends Neo4jRepository<ProductNode, Long
     @Query("MATCH (s:Synonym {name: $synonym})-[:MAPS_TO]->(p:Product) RETURN p LIMIT 10")
     List<ProductNode> findBySynonym(String synonym);
 
+    interface CanonicalAliasProjection {
+        Long getCanonicalId();
+        String getCanonicalCode();
+        String getCanonicalNameVi();
+        String getIngredientFamily();
+        String getDefaultDimension();
+        Double getAvgWeightG();
+        Double getAvgVolumeMl();
+    }
+
+    @Query("""
+            MATCH (ia:IngredientAlias {aliasNorm: $aliasNorm, lang: $lang, active: true})-[:ALIAS_OF]->(ic:IngredientCanonical)
+            RETURN ic.canonicalId AS canonicalId,
+                   ic.code AS canonicalCode,
+                   ic.nameVi AS canonicalNameVi,
+                   ic.family AS ingredientFamily,
+                   ic.defaultDimension AS defaultDimension,
+                   ic.avgWeightG AS avgWeightG,
+                   ic.avgVolumeMl AS avgVolumeMl
+            LIMIT 1
+            """)
+    Optional<CanonicalAliasProjection> findCanonicalByAliasNorm(String aliasNorm, String lang);
+
+    @Query("""
+            MATCH (p:Product)-[:MATCHES_INGREDIENT]->(ic:IngredientCanonical {canonicalId: $canonicalId})
+            RETURN p
+            LIMIT 30
+            """)
+    List<ProductNode> findProductsByCanonicalId(Long canonicalId);
+
     @Query("MATCH (p:Product)-[:CONTAINS_INGREDIENT]->(i:Ingredient) WHERE i.name CONTAINS $ingredientName RETURN p")
     List<ProductNode> findByIngredient(String ingredientName);
 

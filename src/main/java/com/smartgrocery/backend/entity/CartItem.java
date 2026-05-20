@@ -40,6 +40,16 @@ public class CartItem {
     @Builder.Default
     private Boolean allowSubstitution = false;
 
+    @Column(length = 20, nullable = false)
+    @Builder.Default
+    private String source = "MANUAL";
+
+    @Column(name = "ai_list_code", length = 80, nullable = false)
+    @Builder.Default
+    private String aiListCode = "";
+
+    @Column(name = "ai_list_name", length = 160)
+    private String aiListName;
 
     @CreationTimestamp
     @Column(name = "added_at", nullable = false, updatable = false)

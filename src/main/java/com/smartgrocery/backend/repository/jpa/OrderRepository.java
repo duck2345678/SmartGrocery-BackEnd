@@ -14,6 +14,7 @@ import java.util.Optional;
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Long> {
     List<Order> findByUser_Id(Long userId);
+    List<Order> findByUser_IdOrderByCreatedAtDesc(Long userId);
     long countByUser_IdAndStatus(Long userId, String status);
     Optional<Order> findByOrderNumber(String orderNumber);
     List<Order> findTop200ByUser_IdAndStatusNotOrderByCreatedAtDesc(Long userId, String excludedStatus);
@@ -75,6 +76,21 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
            """)
     int releaseAssignment(
             @Param("orderId") Long orderId,
+            @Param("staffId") Long staffId,
+            @Param("pendingStatus") String pendingStatus,
+            @Param("activeStatuses") List<String> activeStatuses
+    );
+
+    @Modifying
+    @Query("""
+           update Order o
+           set o.assignee = null,
+               o.leaseExpiresAt = null,
+               o.status = :pendingStatus
+           where o.assignee.id = :staffId
+             and o.status in :activeStatuses
+           """)
+    int releaseAllAssignmentsForStaff(
             @Param("staffId") Long staffId,
             @Param("pendingStatus") String pendingStatus,
             @Param("activeStatuses") List<String> activeStatuses

@@ -45,11 +45,56 @@ public class UserService {
         User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
 
         if (request.getFullName() != null) user.setFullName(request.getFullName());
-        if (request.getPhone() != null) user.setPhone(request.getPhone());
+        if (request.getPhone() != null) {
+            String phone = request.getPhone().trim();
+            if (phone.isEmpty()) {
+                throw new IllegalArgumentException("Số điện thoại không được để trống.");
+            }
+            if (!phone.matches("^(\\+84|0)\\d{9,10}$")) {
+                throw new IllegalArgumentException("Số điện thoại không hợp lệ (phải gồm 10 chữ số).");
+            }
+            if (!phone.equals(user.getPhone())) {
+                boolean exists = userRepository.existsByPhoneAndIdNot(phone, userId);
+                if (exists) {
+                    throw new IllegalArgumentException("Số điện thoại này đã được sử dụng bởi một tài khoản khác.");
+                }
+            }
+            user.setPhone(phone);
+        }
         if (request.getAvatarUrl() != null) user.setAvatarUrl(request.getAvatarUrl());
 
         User saved = userRepository.save(user);
         return mapToDto(saved);
+    }
+
+    private void validateAddress(UserAddressDto request, User user) {
+        String receiverName = request.getReceiverName() != null && !request.getReceiverName().isBlank()
+                ? request.getReceiverName().trim() : user.getFullName();
+        String receiverPhone = request.getReceiverPhone() != null && !request.getReceiverPhone().isBlank()
+                ? request.getReceiverPhone().trim() : user.getPhone();
+                
+        if (receiverName == null || receiverName.isBlank()) {
+            throw new IllegalArgumentException("Tên người nhận không được để trống.");
+        }
+        if (receiverPhone == null || receiverPhone.isBlank()) {
+            throw new IllegalArgumentException("Số điện thoại nhận hàng không được để trống.");
+        }
+        String cleanPhone = receiverPhone.replaceAll("\\s+", "");
+        if (!cleanPhone.matches("^(\\+84|0)\\d{9,10}$")) {
+            throw new IllegalArgumentException("Số điện thoại nhận hàng không hợp lệ (phải gồm 10 chữ số).");
+        }
+        if (request.getStreetAddress() == null || request.getStreetAddress().isBlank()) {
+            throw new IllegalArgumentException("Số nhà và tên đường không được để trống.");
+        }
+        if (request.getWard() == null || request.getWard().isBlank()) {
+            throw new IllegalArgumentException("Phường/Xã không được để trống.");
+        }
+        if (request.getDistrict() == null || request.getDistrict().isBlank()) {
+            throw new IllegalArgumentException("Quận/Huyện không được để trống.");
+        }
+        if (request.getCity() == null || request.getCity().isBlank()) {
+            throw new IllegalArgumentException("Tỉnh/Thành phố không được để trống.");
+        }
     }
 
     @Transactional
@@ -67,15 +112,22 @@ public class UserService {
             resetDefaultAddresses(userId);
         }
 
+        validateAddress(request, user);
+
+        String rName = request.getReceiverName() != null && !request.getReceiverName().isBlank()
+                ? request.getReceiverName().trim() : user.getFullName();
+        String rPhone = request.getReceiverPhone() != null && !request.getReceiverPhone().isBlank()
+                ? request.getReceiverPhone().trim() : user.getPhone();
+
         UserAddress address = UserAddress.builder()
                 .user(user)
                 .addressType(request.getAddressType())
-                .receiverName(user.getFullName()) // Auto-take from customer
-                .receiverPhone(user.getPhone())   // Auto-take from customer
-                .streetAddress(request.getStreetAddress())
-                .ward(request.getWard())
-                .district(request.getDistrict())
-                .city(request.getCity())
+                .receiverName(rName)
+                .receiverPhone(rPhone)
+                .streetAddress(request.getStreetAddress().trim())
+                .ward(request.getWard().trim())
+                .district(request.getDistrict().trim())
+                .city(request.getCity().trim())
                 .isDefault(shouldBeDefault)
                 .build();
 
@@ -105,15 +157,20 @@ public class UserService {
             address.setIsDefault(true);
         }
 
+        validateAddress(request, user);
+
+        String rName = request.getReceiverName() != null && !request.getReceiverName().isBlank()
+                ? request.getReceiverName().trim() : user.getFullName();
+        String rPhone = request.getReceiverPhone() != null && !request.getReceiverPhone().isBlank()
+                ? request.getReceiverPhone().trim() : user.getPhone();
+
         address.setAddressType(request.getAddressType());
-        // Sync with current customer info if they were removed from form
-        address.setReceiverName(user.getFullName());
-        address.setReceiverPhone(user.getPhone());
-        
-        address.setStreetAddress(request.getStreetAddress());
-        address.setWard(request.getWard());
-        address.setDistrict(request.getDistrict());
-        address.setCity(request.getCity());
+        address.setReceiverName(rName);
+        address.setReceiverPhone(rPhone);
+        address.setStreetAddress(request.getStreetAddress().trim());
+        address.setWard(request.getWard().trim());
+        address.setDistrict(request.getDistrict().trim());
+        address.setCity(request.getCity().trim());
 
         return mapToAddressDto(userAddressRepository.save(address));
     }

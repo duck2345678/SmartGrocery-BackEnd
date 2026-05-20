@@ -1,7 +1,6 @@
 package com.smartgrocery.backend.config;
 
 import com.smartgrocery.backend.security.JwtAuthenticationFilter;
-import com.smartgrocery.backend.security.AiRateLimitFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,7 +29,6 @@ import java.util.Collections;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
-    private final AiRateLimitFilter aiRateLimitFilter;
     private final UserDetailsService userDetailsService;
 
     @Bean
@@ -67,8 +65,7 @@ public class SecurityConfig {
             )
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authenticationProvider(authenticationProvider())
-            .addFilterBefore(aiRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
-            .addFilterAfter(jwtAuthFilter, AiRateLimitFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         
         return http.build();
     }
@@ -77,7 +74,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOriginPatterns(Collections.singletonList("*")); // Allow all for Dev
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(Collections.singletonList("*"));
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Device-Fingerprint"));
         configuration.setAllowCredentials(false);

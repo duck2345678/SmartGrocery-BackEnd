@@ -59,6 +59,22 @@ public class Voucher {
     @Builder.Default
     private Boolean active = true;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean hidden = false;
+
+    @Column(name = "reveal_trigger", length = 40, nullable = false)
+    @Builder.Default
+    private String revealTrigger = "PUBLIC";
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_user_id")
+    private User assignedUser;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "unlocked_by_order_id")
+    private Order unlockedByOrder;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

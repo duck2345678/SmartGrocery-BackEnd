@@ -1,21 +1,21 @@
 package com.smartgrocery.backend.repository.jpa;
 
 import com.smartgrocery.backend.entity.ChatSession;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface ChatSessionRepository extends JpaRepository<ChatSession, Long> {
 
-    Optional<ChatSession> findTopByUser_IdAndStatusOrderByLastActiveAtDesc(Long userId, String status);
+    @Query("SELECT s FROM ChatSession s WHERE s.user.id = :userId AND s.deletedAt IS NULL ORDER BY s.updatedAt DESC")
+    Page<ChatSession> findActiveByUserId(@Param("userId") Long userId, Pageable pageable);
 
-    List<ChatSession> findByUser_IdOrderByLastActiveAtDesc(Long userId);
-
-    List<ChatSession> findByUser_IdAndStatus(Long userId, String status);
-
-    List<ChatSession> findByLastActiveAtBeforeAndStatus(LocalDateTime before, String status);
+    @Query("SELECT s FROM ChatSession s LEFT JOIN FETCH s.messages WHERE s.id = :id AND s.user.id = :userId AND s.deletedAt IS NULL")
+    Optional<ChatSession> findActiveByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 }

@@ -233,7 +233,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <jvmArguments>-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8</jvmArguments>
+                    <jvmArguments>-Xms256m -Xmx768m -Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8</jvmArguments>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
@@ -284,7 +284,6 @@
                     <targetClasses>
                         <param>com.smartgrocery.backend.service.ai.*</param>
                         <param>com.smartgrocery.backend.service.recommendation.*</param>
-                        <param>com.smartgrocery.backend.service.ai.ChatAssistantService</param>
                     </targetClasses>
                     <targetTests>
                         <param>com.smartgrocery.backend.service.*</param>

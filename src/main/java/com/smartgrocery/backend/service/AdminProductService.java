@@ -82,7 +82,7 @@ public class AdminProductService {
     public Page<ProductDto> search(String search, Long categoryId, String status, Boolean discounted, Pageable pageable) {
         Pageable safePageable = PageRequest.of(
                 Math.max(pageable.getPageNumber(), 0),
-                Math.min(Math.max(pageable.getPageSize(), 1), 100),
+                Math.min(Math.max(pageable.getPageSize(), 1), 10000),
                 pageable.getSort().isSorted() ? pageable.getSort() : Sort.by(Sort.Direction.DESC, "updatedAt")
         );
         log.info("Admin product search search={} categoryId={} status={} discounted={} page={} size={}",
@@ -641,22 +641,33 @@ public class AdminProductService {
     }
 
     private void syncToNeo4j(Product product) {
+        final Long prodId = product.getId();
+        final String prodName = product.getName();
+        final String prodDesc = product.getDescription();
+        final String prodStatus = product.getStatus();
+
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            syncToNeo4jAsync(prodId, prodName, prodDesc, prodStatus);
+        });
+    }
+
+    private void syncToNeo4jAsync(Long id, String name, String description, String status) {
         try {
-            if (STATUS_DELETED.equals(product.getStatus())) {
-                productNodeRepository.deleteById(product.getId());
-                log.info("AI Sync: Deleted ProductNode ID: {}", product.getId());
+            if (STATUS_DELETED.equals(status)) {
+                productNodeRepository.deleteById(id);
+                log.info("AI Sync: Deleted ProductNode ID: {}", id);
                 return;
             }
-            ProductNode node = productNodeRepository.findById(product.getId())
-                    .orElse(ProductNode.builder().productId(product.getId()).build());
+            ProductNode node = productNodeRepository.findById(id)
+                    .orElse(ProductNode.builder().productId(id).build());
             
-            node.setName(product.getName());
-            node.setDescription(product.getDescription());
+            node.setName(name);
+            node.setDescription(description);
             
             // Get price from the first active variant
-            List<ProductVariant> variants = productVariantRepository.findByProduct_IdAndStatus(product.getId(), STATUS_ACTIVE);
+            List<ProductVariant> variants = productVariantRepository.findByProduct_IdAndStatus(id, STATUS_ACTIVE);
             if (variants.isEmpty()) {
-                variants = productVariantRepository.findByProduct_Id(product.getId());
+                variants = productVariantRepository.findByProduct_Id(id);
             }
             double price = 0.0;
             if (!variants.isEmpty()) {
@@ -668,9 +679,9 @@ public class AdminProductService {
             node.setPrice(price);
             
             productNodeRepository.save(node);
-            log.info("AI Sync: Updated ProductNode ID: {} - {}", product.getId(), product.getName());
+            log.info("AI Sync: Updated ProductNode ID: {} - {}", id, name);
         } catch (Exception e) {
-            log.warn("AI Sync failed for product {}: {}", product.getId(), e.getMessage());
+            log.warn("AI Sync failed for product {}: {}", id, e.getMessage());
         }
     }
 

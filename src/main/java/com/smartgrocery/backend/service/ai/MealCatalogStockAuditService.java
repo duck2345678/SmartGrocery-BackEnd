@@ -20,7 +20,6 @@ import java.io.InputStreamReader;
 import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -94,9 +93,9 @@ public class MealCatalogStockAuditService {
 
             ingredientAudits.forEach(audit -> {
                 if ("MISSING_PRODUCT".equals(audit.status())) {
-                    missingIngredientCounts.merge(audit.ingredient(), 1, Integer::sum);
+                    missingIngredientCounts.merge(audit.ingredient(), 1, (a, b) -> a + b);
                 } else if ("OUT_OF_STOCK".equals(audit.status())) {
-                    outOfStockIngredientCounts.merge(audit.ingredient(), 1, Integer::sum);
+                    outOfStockIngredientCounts.merge(audit.ingredient(), 1, (a, b) -> a + b);
                 }
             });
 

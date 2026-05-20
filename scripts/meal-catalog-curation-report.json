@@ -1,0 +1,12 @@
+{
+    "inputPath":  "C:\\Users\\ACER\\Documents\\1\\SmartGrocery-BackEnd\\src\\main\\resources\\data\\international_food_dataset_1000_vi.json",
+    "outputPath":  "C:\\Users\\ACER\\Documents\\1\\SmartGrocery-BackEnd\\src\\main\\resources\\data\\international_food_dataset_1000_vi.curated.json",
+    "overridesPath":  "C:\\Users\\ACER\\Documents\\1\\SmartGrocery-BackEnd\\scripts\\meal-catalog-curation-overrides.json",
+    "curatedItems":  330,
+    "explicitOverridesApplied":  5,
+    "heuristicPromotions":  30,
+    "legacyFallbackItems":  0,
+    "issues":  [
+
+               ]
+}

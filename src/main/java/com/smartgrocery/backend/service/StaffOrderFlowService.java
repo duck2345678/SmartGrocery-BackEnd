@@ -25,6 +25,7 @@ import com.smartgrocery.backend.repository.jpa.WarehouseRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.smartgrocery.backend.service.NotificationService;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -71,6 +72,9 @@ public class StaffOrderFlowService {
 
     @Autowired
     private Clock clock;
+
+    @Autowired
+    private NotificationService notificationService;
 
     @Transactional(readOnly = true, transactionManager = "transactionManager")
     public List<StaffOrderDto> getQueue(User staffUser) {
@@ -142,6 +146,21 @@ public class StaffOrderFlowService {
         oldest.setStatus(STATUS_ASSIGNED);
         
         Order saved = orderRepository.save(oldest);
+
+        // Notify customer
+        try {
+            if (saved.getUser() != null) {
+                notificationService.sendNotification(
+                        saved.getUser(),
+                        "Đơn hàng đang chuẩn bị",
+                        "Nhân viên " + staffUser.getFullName() + " đã tiếp nhận và bắt đầu soạn đơn hàng " + saved.getOrderNumber() + " của bạn.",
+                        "ORDER_STATUS"
+                );
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+
         return toStaffOrderDto(saved);
     }
 
@@ -180,6 +199,22 @@ public class StaffOrderFlowService {
             throw new OrderAssignmentConflictException("Order is not in your queue or no longer available");
         }
         orderRepository.touchAssignedAt(orderId, now);
+
+        // Notify customer
+        try {
+            Order order = orderRepository.findById(orderId).orElse(null);
+            if (order != null && order.getUser() != null) {
+                notificationService.sendNotification(
+                        order.getUser(),
+                        "Đơn hàng đang chuẩn bị",
+                        "Nhân viên " + staffUser.getFullName() + " đã tiếp nhận và bắt đầu soạn đơn hàng " + order.getOrderNumber() + " của bạn.",
+                        "ORDER_STATUS"
+                );
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+
         return AssignOrderResponse.builder()
                 .orderId(orderId)
                 .assigneeId(staffUser.getId())
@@ -300,7 +335,10 @@ public class StaffOrderFlowService {
 
             int orderedQty = item.getQuantity() != null ? item.getQuantity() : 0;
             int actualQty = picked.getActualQuantity() != null ? picked.getActualQuantity() : 0;
-            if (actualQty < 0 || actualQty > orderedQty) {
+            if (actualQty <= 0) {
+                throw new IllegalArgumentException("Sản phẩm " + item.getProductName() + " chưa được nhặt (số lượng bằng 0).");
+            }
+            if (actualQty > orderedQty) {
                 throw new IllegalArgumentException("actualQuantity không hợp lệ cho orderItem=" + item.getId());
             }
 
@@ -334,6 +372,20 @@ public class StaffOrderFlowService {
         order.setPickedAt(LocalDateTime.now(clock));
         order.setLeaseExpiresAt(null);
         orderRepository.save(order);
+
+        // Notify customer
+        try {
+            if (order.getUser() != null) {
+                notificationService.sendNotification(
+                        order.getUser(),
+                        "Đã soạn xong sản phẩm",
+                        "Đơn hàng " + order.getOrderNumber() + " của bạn đã được soạn xong đầy đủ và đang chờ đóng gói.",
+                        "ORDER_STATUS"
+                );
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
 
         return getPickList(orderId, staffUser);
     }

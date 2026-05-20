@@ -8,6 +8,8 @@ import org.springframework.boot.autoconfigure.data.neo4j.Neo4jReactiveRepositori
 import org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import org.springframework.data.web.config.EnableSpringDataWebSupport;
+
 @SpringBootApplication(exclude = {
         JpaRepositoriesAutoConfiguration.class,
         Neo4jRepositoriesAutoConfiguration.class,
@@ -15,6 +17,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         RedisRepositoriesAutoConfiguration.class
 })
 @EnableScheduling
+@EnableSpringDataWebSupport(pageSerializationMode = EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO)
 public class SmartGroceryApplication {
 
     public static void main(String[] args) {

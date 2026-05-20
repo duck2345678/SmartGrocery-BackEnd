@@ -51,8 +51,8 @@ public class OrderController {
 
     @Operation(summary = "Danh sách voucher đang khả dụng")
     @GetMapping("/vouchers/available")
-    public ResponseEntity<List<VoucherDto>> getAvailableVouchers() {
-        return ResponseEntity.ok(voucherService.getAvailableVouchers());
+    public ResponseEntity<List<VoucherDto>> getAvailableVouchers(@AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(voucherService.getAvailableVouchers(user));
     }
 
     @Operation(summary = "Hủy đơn hàng")

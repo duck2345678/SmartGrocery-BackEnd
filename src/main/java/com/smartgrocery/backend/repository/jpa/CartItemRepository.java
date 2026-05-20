@@ -13,5 +13,6 @@ public interface CartItemRepository extends JpaRepository<CartItem, Long> {
     List<CartItem> findByVariant_Product_Id(Long productId);
     List<CartItem> findByCart(com.smartgrocery.backend.entity.Cart cart);
     Optional<CartItem> findByCart_IdAndVariant_Id(Long cartId, Long variantId);
+    Optional<CartItem> findByCart_IdAndVariant_IdAndSourceAndAiListCode(Long cartId, Long variantId, String source, String aiListCode);
     void deleteByCartId(Long cartId);
 }

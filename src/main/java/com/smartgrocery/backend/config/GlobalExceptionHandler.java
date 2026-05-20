@@ -103,6 +103,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException ex) {
         String message = ex.getMessage() != null ? ex.getMessage() : "Invalid input";
+        if ("Phone already exists".equalsIgnoreCase(message) || "Số điện thoại này đã được đăng ký.".equalsIgnoreCase(message)) {
+            message = "Số điện thoại này đã được sử dụng bởi một tài khoản khác.";
+        } else if ("Email already exists".equalsIgnoreCase(message)) {
+            message = "Email này đã được sử dụng bởi một tài khoản khác.";
+        }
         return ResponseEntity.badRequest().body(ApiResponse.error(400, message));
     }
 
@@ -110,6 +115,26 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleOrderAssignmentConflict(OrderAssignmentConflictException ex) {
         String message = ex.getMessage() != null ? ex.getMessage() : "Order already assigned";
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.error(409, message));
+    }
+
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(org.springframework.dao.DataIntegrityViolationException ex) {
+        log.error("Data integrity violation", ex);
+        String msg = ex.getMostSpecificCause().getMessage();
+        String friendlyMessage = "Dữ liệu không hợp lệ hoặc bị trùng lặp.";
+        
+        if (msg != null) {
+            String lowercaseMsg = msg.toLowerCase();
+            if (lowercaseMsg.contains("users_phone_key") || lowercaseMsg.contains("users.phone") || lowercaseMsg.contains("uq_users_phone") || (lowercaseMsg.contains("duplicate key") && lowercaseMsg.contains("phone"))) {
+                friendlyMessage = "Số điện thoại này đã được sử dụng bởi một tài khoản khác.";
+            } else if (lowercaseMsg.contains("users_email_key") || lowercaseMsg.contains("users.email") || lowercaseMsg.contains("uq_users_email") || (lowercaseMsg.contains("duplicate key") && lowercaseMsg.contains("email"))) {
+                friendlyMessage = "Email này đã được đăng ký bởi tài khoản khác.";
+            } else if (lowercaseMsg.contains("value too long") || lowercaseMsg.contains("too long")) {
+                friendlyMessage = "Thông tin nhập vào quá dài, vui lòng rút ngắn lại.";
+            }
+        }
+        
+        return ResponseEntity.badRequest().body(ApiResponse.error(HttpStatus.BAD_REQUEST.value(), friendlyMessage));
     }
 
     @ExceptionHandler(Exception.class)

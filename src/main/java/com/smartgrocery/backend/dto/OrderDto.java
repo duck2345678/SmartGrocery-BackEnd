@@ -36,6 +36,10 @@ public class OrderDto {
     private LocalDateTime pickedAt;
     private LocalDateTime deliveredAt;
     private List<OrderItemDto> items;
+    private Boolean aiGenerated;
+    private String aiListCode;
+    private String aiListName;
+    private VoucherDto rewardVoucher;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

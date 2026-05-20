@@ -2,10 +2,7 @@ package com.smartgrocery.backend.service;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseToken;
-import com.smartgrocery.backend.dto.AuthResponse;
-import com.smartgrocery.backend.dto.LoginRequest;
-import com.smartgrocery.backend.dto.RegisterRequest;
-import com.smartgrocery.backend.dto.UserDto;
+import com.smartgrocery.backend.dto.*;
 import com.smartgrocery.backend.entity.Role;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.entity.UserSession;
@@ -14,6 +11,7 @@ import com.smartgrocery.backend.repository.jpa.UserRepository;
 import com.smartgrocery.backend.repository.jpa.UserSessionRepository;
 import com.smartgrocery.backend.security.JwtService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -31,11 +30,38 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final UserSessionRepository userSessionRepository;
+    private final EmailOtpService emailOtpService;
+    private final AccountEmailService accountEmailService;
+
+    // ── Register: tạo PENDING_VERIFY + gửi OTP ───────────────────────────────
 
     @Transactional("transactionManager")
-    public AuthResponse register(RegisterRequest request, String deviceFingerprint) {
+    public RegistrationPendingResponse register(RegisterRequest request, String deviceFingerprint) {
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Email already exists");
+            // Nếu đã tồn tại và PENDING_VERIFY, cho phép gửi lại OTP
+            User existing = userRepository.findByEmail(request.getEmail()).orElseThrow();
+            if ("PENDING_VERIFY".equals(existing.getStatus())) {
+                String otp = emailOtpService.generateAndSave(request.getEmail(), "EMAIL_VERIFY");
+                accountEmailService.sendEmailVerificationOtp(request.getEmail(), existing.getFullName(), otp);
+                return RegistrationPendingResponse.builder()
+                        .email(request.getEmail())
+                        .requiresEmailVerification(true)
+                        .expiresInSeconds(600)
+                        .message("Email đã được đăng ký nhưng chưa xác nhận. Mã xác nhận mới đã được gửi.")
+                        .build();
+            }
+            throw new RuntimeException("Email này đã được đăng ký.");
+        }
+
+        if (request.getPhone() == null || request.getPhone().isBlank()) {
+            throw new IllegalArgumentException("Số điện thoại không được để trống.");
+        }
+        String phone = request.getPhone().trim();
+        if (!phone.matches("^(\\+84|0)\\d{9,10}$")) {
+            throw new IllegalArgumentException("Số điện thoại không hợp lệ (phải gồm 10 chữ số).");
+        }
+        if (userRepository.findByPhone(phone).isPresent()) {
+            throw new IllegalArgumentException("Số điện thoại này đã được sử dụng bởi một tài khoản khác.");
         }
 
         Role customerRole = roleRepository.findByName("CUSTOMER")
@@ -45,12 +71,42 @@ public class AuthService {
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName())
-                .phone(request.getPhone())
+                .phone(phone)
                 .role(customerRole)
-                .status("ACTIVE")
+                .status("PENDING_VERIFY")
                 .build();
+        userRepository.save(user);
 
-        user = userRepository.save(user);
+        String otp = emailOtpService.generateAndSave(request.getEmail(), "EMAIL_VERIFY");
+        accountEmailService.sendEmailVerificationOtp(request.getEmail(), request.getFullName(), otp);
+
+        return RegistrationPendingResponse.builder()
+                .email(request.getEmail())
+                .requiresEmailVerification(true)
+                .expiresInSeconds(600)
+                .message("Đăng ký thành công! Vui lòng kiểm tra email để nhận mã xác nhận.")
+                .build();
+    }
+
+    // ── Verify email OTP → cấp JWT ───────────────────────────────────────────
+
+    @Transactional("transactionManager")
+    public AuthResponse verifyEmail(VerifyEmailRequest request, String deviceFingerprint) {
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tài khoản."));
+
+        if ("ACTIVE".equals(user.getStatus())) {
+            throw new RuntimeException("Email này đã được xác nhận trước đó.");
+        }
+        if (!"PENDING_VERIFY".equals(user.getStatus())) {
+            throw new RuntimeException("Tài khoản không ở trạng thái chờ xác nhận.");
+        }
+
+        emailOtpService.verifyAndConsume(request.getEmail(), "EMAIL_VERIFY", request.getOtp());
+
+        user.setStatus("ACTIVE");
+        user.setEmailVerifiedAt(LocalDateTime.now());
+        userRepository.save(user);
 
         String jwt = jwtService.generateToken(user);
         String refreshToken = UUID.randomUUID().toString();
@@ -63,17 +119,78 @@ public class AuthService {
                 .build();
     }
 
+    // ── Resend email verification ─────────────────────────────────────────────
+
+    @Transactional("transactionManager")
+    public void resendEmailVerification(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tài khoản."));
+        if (!"PENDING_VERIFY".equals(user.getStatus())) {
+            throw new RuntimeException("Tài khoản này không cần xác nhận email.");
+        }
+        String otp = emailOtpService.generateAndSave(email, "EMAIL_VERIFY");
+        accountEmailService.sendEmailVerificationOtp(email, user.getFullName(), otp);
+    }
+
+    // ── Forgot password: gửi OTP reset ───────────────────────────────────────
+
+    @Transactional("transactionManager")
+    public void forgotPassword(String email) {
+        // Response chung để tránh leak thông tin user
+        userRepository.findByEmail(email).ifPresent(user -> {
+            if (!"ACTIVE".equals(user.getStatus())) return;
+            try {
+                String otp = emailOtpService.generateAndSave(email, "PASSWORD_RESET");
+                accountEmailService.sendPasswordResetOtp(email, user.getFullName(), otp);
+            } catch (Exception e) {
+                log.warn("Forgot password OTP failed for {}: {}", email, e.getMessage());
+            }
+        });
+    }
+
+    // ── Reset password ────────────────────────────────────────────────────────
+
+    @Transactional("transactionManager")
+    public void resetPassword(ResetPasswordRequest request) {
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tài khoản."));
+
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new RuntimeException("Tài khoản không hợp lệ để đặt lại mật khẩu.");
+        }
+        if (request.getNewPassword() == null || request.getNewPassword().length() < 6) {
+            throw new RuntimeException("Mật khẩu mới phải có ít nhất 6 ký tự.");
+        }
+
+        emailOtpService.verifyAndConsume(request.getEmail(), "PASSWORD_RESET", request.getOtp());
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+
+        // Thu hồi tất cả session cũ để bắt buộc đăng nhập lại
+        userSessionRepository.revokeAllActiveSessionsByUserId(user.getId());
+        log.info("Password reset successful for email={}", request.getEmail());
+    }
+
+    // ── Login ─────────────────────────────────────────────────────────────────
+
     public AuthResponse login(LoginRequest request, String deviceFingerprint) {
         User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("Email hoặc mật khẩu không đúng."));
+
+        if ("PENDING_VERIFY".equals(user.getStatus())) {
+            throw new RuntimeException("PENDING_VERIFY: Tài khoản chưa được xác nhận email. Vui lòng kiểm tra hộp thư của bạn.");
+        }
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new RuntimeException("Tài khoản của bạn đã bị khoá. Vui lòng liên hệ hỗ trợ.");
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new RuntimeException("Invalid password");
+            throw new RuntimeException("Email hoặc mật khẩu không đúng.");
         }
 
         String jwt = jwtService.generateToken(user);
         String refreshToken = UUID.randomUUID().toString();
-        // In a real scenario, userAgent and ipAddress would be passed from the Controller
         createSession(user, refreshToken, "Unknown", "Unknown", deviceFingerprint);
 
         return AuthResponse.builder()
@@ -82,6 +199,8 @@ public class AuthService {
                 .user(mapToUserDto(user))
                 .build();
     }
+
+    // ── Firebase login ────────────────────────────────────────────────────────
 
     @Transactional("transactionManager")
     public AuthResponse loginWithFirebase(String idToken, String deviceFingerprint) {
@@ -100,7 +219,6 @@ public class AuthService {
                                         .name("CUSTOMER")
                                         .description("Default Customer Role")
                                         .build()));
-                        
                         return User.builder()
                                 .email(email)
                                 .firebaseUid(firebaseUid)
@@ -111,12 +229,9 @@ public class AuthService {
                                 .build();
                     });
 
-            // Update firebaseUid if matched by email
-            if (user.getFirebaseUid() == null) {
-                user.setFirebaseUid(firebaseUid);
-            }
-            
+            if (user.getFirebaseUid() == null) user.setFirebaseUid(firebaseUid);
             user = userRepository.save(user);
+
             String jwt = jwtService.generateToken(user);
             String refreshToken = UUID.randomUUID().toString();
             createSession(user, refreshToken, "Unknown", "Unknown", deviceFingerprint);
@@ -131,6 +246,8 @@ public class AuthService {
         }
     }
 
+    // ── Token refresh ─────────────────────────────────────────────────────────
+
     @Transactional("transactionManager")
     public AuthResponse refreshToken(String refreshToken, String userAgent, String ipAddress, String deviceFingerprint) {
         String hash = jwtService.hashToken(refreshToken);
@@ -138,7 +255,6 @@ public class AuthService {
                 .orElseThrow(() -> new RuntimeException("Invalid refresh token"));
 
         if (session.isRevoked() || session.getExpiresAt().isBefore(LocalDateTime.now())) {
-            // Anomalous Reuse Detection: If someone uses a revoked token, revoke ALL sessions for that user!
             if (session.isRevoked()) {
                 userSessionRepository.revokeAllActiveSessionsByUserId(session.getUser().getId());
                 throw new RuntimeException("Refresh token was previously revoked. All sessions invalidated for security.");
@@ -152,15 +268,12 @@ public class AuthService {
             throw new RuntimeException("Thiết bị đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
         }
 
-        // Rotate: Revoke current session
         session.setRevoked(true);
         userSessionRepository.save(session);
 
-        // Generate new pair
         User user = session.getUser();
         String newAccessToken = jwtService.generateToken(user);
         String newRefreshToken = UUID.randomUUID().toString();
-
         createSession(user, newRefreshToken, userAgent, ipAddress, normalizedFingerprint);
 
         return AuthResponse.builder()
@@ -170,18 +283,38 @@ public class AuthService {
                 .build();
     }
 
+    // ── Logout ────────────────────────────────────────────────────────────────
+
     @Transactional("transactionManager")
     public void logout(String refreshToken, String deviceFingerprint) {
         String hash = jwtService.hashToken(refreshToken);
         String normalizedFingerprint = normalizeFingerprint(deviceFingerprint);
         userSessionRepository.findByRefreshTokenHash(hash).ifPresent(session -> {
-            if (normalizedFingerprint != null && session.getDeviceFingerprint() != null && !session.getDeviceFingerprint().equals(normalizedFingerprint)) {
-                return;
-            }
+            if (normalizedFingerprint != null && session.getDeviceFingerprint() != null
+                    && !session.getDeviceFingerprint().equals(normalizedFingerprint)) return;
             session.setRevoked(true);
             userSessionRepository.save(session);
         });
     }
+
+    // ── Profile ───────────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true, transactionManager = "transactionManager")
+    public UserDto getCurrentUserDto(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        return mapToUserDto(user);
+    }
+
+    @Transactional("transactionManager")
+    public UserDto updateUserProfile(User user, Map<String, String> updates) {
+        if (updates.containsKey("fullName")) user.setFullName(updates.get("fullName"));
+        if (updates.containsKey("phone")) user.setPhone(updates.get("phone"));
+        if (updates.containsKey("avatarUrl")) user.setAvatarUrl(updates.get("avatarUrl"));
+        return mapToUserDto(userRepository.save(user));
+    }
+
+    // ── Internals ─────────────────────────────────────────────────────────────
 
     @Transactional("transactionManager")
     private void createSession(User user, String refreshToken, String userAgent, String ipAddress, String deviceFingerprint) {
@@ -189,10 +322,7 @@ public class AuthService {
         if (normalizedFingerprint == null || normalizedFingerprint.isBlank()) {
             throw new RuntimeException("Thiết bị đăng nhập không hợp lệ. Vui lòng đăng nhập lại.");
         }
-
-        // Single-device policy: any new login takes over the account and invalidates prior sessions.
         userSessionRepository.revokeAllActiveSessionsByUserId(user.getId());
-
         UserSession session = UserSession.builder()
                 .user(user)
                 .refreshTokenHash(jwtService.hashToken(refreshToken))
@@ -208,27 +338,6 @@ public class AuthService {
 
     private String normalizeFingerprint(String deviceFingerprint) {
         return deviceFingerprint == null ? null : deviceFingerprint.trim();
-    }
-
-    @Transactional(readOnly = true, transactionManager = "transactionManager")
-    public UserDto getCurrentUserDto(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        return mapToUserDto(user);
-    }
-
-    @Transactional("transactionManager")
-    public UserDto updateUserProfile(User user, Map<String, String> updates) {
-        if (updates.containsKey("fullName")) {
-            user.setFullName(updates.get("fullName"));
-        }
-        if (updates.containsKey("phone")) {
-            user.setPhone(updates.get("phone"));
-        }
-        if (updates.containsKey("avatarUrl")) {
-            user.setAvatarUrl(updates.get("avatarUrl"));
-        }
-        return mapToUserDto(userRepository.save(user));
     }
 
     private UserDto mapToUserDto(User user) {

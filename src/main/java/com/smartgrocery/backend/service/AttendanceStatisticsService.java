@@ -58,7 +58,7 @@ public class AttendanceStatisticsService {
             ShiftSchedule schedule = scheduleMap.get(date);
             List<AttendanceRecord> dayRecords = recordMap.getOrDefault(date, Collections.emptyList());
             String shiftType = schedule != null ? normalize(schedule.getShiftType()) : "OFF";
-            boolean countable = schedule != null && Set.of("S", "C", "G").contains(shiftType) && schedule.getSelectedBlocks() != null;
+            boolean countable = schedule != null && Set.of("S", "C", "G").contains(shiftType) && (schedule.getSelectedBlocks() != null || "S".equals(shiftType) || "C".equals(shiftType));
             String dayStatus = determineDayStatus(date, schedule != null, shiftType, dayRecords, today);
 
             int scheduledBlocksForDay = (countable && schedule != null) ? ("G".equals(shiftType) ? parseSelectedBlocks(schedule.getSelectedBlocks()).size() : 1) : 0;

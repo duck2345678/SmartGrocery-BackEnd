@@ -50,7 +50,9 @@ public class StaffOrderController {
     @GetMapping("/my-active")
     public ResponseEntity<StaffOrderDto> getMyActive(@AuthenticationPrincipal User user) {
         assertStaffRole();
-        return ResponseEntity.of(staffOrderFlowService.getMyActiveOrder(user));
+        return staffOrderFlowService.getMyActiveOrder(user)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.noContent().build());
     }
 
     @Operation(summary = "Tự động nhận đơn cũ nhất trong hàng chờ")

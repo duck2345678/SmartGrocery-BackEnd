@@ -25,6 +25,9 @@ public class IngredientComparisonService {
     ) {}
 
     public List<IngredientMatchResult> analyzeAndMatchIngredients(List<String> ingredients) {
+        if (ingredients == null || ingredients.isEmpty()) {
+            return List.of();
+        }
         log.info("Starting automated ingredient comparison for {} items", ingredients.size());
         List<IngredientMatchResult> results = new ArrayList<>();
 
@@ -36,13 +39,31 @@ public class IngredientComparisonService {
     }
 
     private IngredientMatchResult matchSingleIngredient(String ingredient) {
-        String query = ingredient.toLowerCase().trim();
-        
-        // 1. Try Exact/Synonym match in Neo4j
-        List<ProductNode> candidates = productNodeRepository.findBySynonym(query);
-        if (candidates.isEmpty()) {
-            candidates = productNodeRepository.searchByKeyword(query);
+        String query = normalizeText(ingredient);
+        if (query.isBlank()) {
+            return new IngredientMatchResult(ingredient, null, null, 0.0, "MISSING", "Nguyên liệu trống.");
         }
+
+        List<String> aliases = expandAliases(query);
+
+        // 1. Try Exact/Synonym match in Neo4j
+        List<ProductNode> candidates = new ArrayList<>();
+        for (String alias : aliases) {
+            List<ProductNode> aliasCandidates = productNodeRepository.findBySynonym(alias);
+            if (!aliasCandidates.isEmpty()) {
+                candidates.addAll(aliasCandidates);
+            }
+        }
+        if (candidates.isEmpty()) {
+            for (String alias : aliases) {
+                candidates.addAll(productNodeRepository.searchByKeyword(alias));
+            }
+        }
+
+        candidates = candidates.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
 
         if (candidates.isEmpty()) {
             return new IngredientMatchResult(ingredient, null, null, 0.0, "MISSING", "Không tìm thấy sản phẩm nào khớp trong Database.");
@@ -51,7 +72,7 @@ public class IngredientComparisonService {
         // 2. Score candidates based on name similarity and vector similarity
         List<ProductScore> scoredCandidates = new ArrayList<>();
         for (ProductNode p : candidates) {
-            double score = calculateMatchScore(query, p);
+            double score = calculateMatchScore(query, p, aliases);
             scoredCandidates.add(new ProductScore(p, score));
         }
 
@@ -87,11 +108,21 @@ public class IngredientComparisonService {
             "giam", "sot", "bot", "nuoc", "gia vi", "trich xuat", "huong", "say khô", "dong hop", "muoi"
     );
 
-    private double calculateMatchScore(String query, ProductNode product) {
+    private double calculateMatchScore(String query, ProductNode product, List<String> aliases) {
         String pName = normalizeText(product.getName());
         String q = normalizeText(query);
-        
-        if (pName.equals(q)) return 1.0;
+        Set<String> aliasSet = new LinkedHashSet<>(aliases);
+
+        if (pName.equals(q) || aliasSet.contains(pName)) return 1.0;
+
+        for (String alias : aliasSet) {
+            if (pName.contains(alias) || alias.contains(pName)) {
+                String[] aliasWords = alias.split("\\s+");
+                if (aliasWords.length > 1) {
+                    return 0.95;
+                }
+            }
+        }
 
         if (q.equals("uc ga")) {
             boolean isBreast = pName.contains("uc ga") || (pName.contains("phi le") && pName.contains("ga"));
@@ -113,7 +144,12 @@ public class IngredientComparisonService {
 
         // 1. Base Score: Jaccard-like word overlap
         long intersect = qSet.stream().filter(pSet::contains).count();
-        double score = (double) intersect / Math.max(qSet.size(), pSet.size());
+        double score;
+        if (pSet.containsAll(qSet)) {
+            score = 0.85;
+        } else {
+            score = (double) intersect / Math.max(qSet.size(), pSet.size());
+        }
 
         // 2. Penalty: Derived product mismatch (e.g., "táo" vs "giấm táo")
         for (String derived : DERIVED_TERMS) {
@@ -148,6 +184,23 @@ public class IngredientComparisonService {
         if (q.equals("sua") && pName.contains("tuoi")) score += 0.1;
 
         return Math.max(0.0, Math.min(1.0, score));
+    }
+
+    private List<String> expandAliases(String query) {
+        Set<String> aliases = new LinkedHashSet<>();
+        aliases.add(query);
+        aliases.add(query.replace("sua tuoi tach beo", "sua tuoi"));
+        aliases.add(query.replace("uc ga phi le", "uc ga"));
+        aliases.add(query.replace("dau oliu", "olive oil"));
+        aliases.add(query.replace("dau oliu", "dau o liu"));
+        aliases.add(query.replace("oliu", "o liu"));
+        aliases.add(query.replace("miy", "mi y"));
+        aliases.add(query.replace("mi y", "spaghetti"));
+        aliases.add(query.replace("trung ga", "trung"));
+        aliases.add(query.replace("rau xanh", "xa lach"));
+        aliases.add(query.replace("ca rot", "carrot"));
+        aliases.add(query.replace("khoai tay", "potato"));
+        return aliases.stream().filter(s -> s != null && !s.isBlank()).distinct().toList();
     }
 
     private String normalizeText(String text) {

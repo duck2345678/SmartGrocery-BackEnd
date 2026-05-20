@@ -1,4 +1,4 @@
-﻿productsCount=472
+productsCount=472
 variantsCount=466
 stocksCount=466
 productsWithNullCount=0

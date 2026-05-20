@@ -10,4 +10,7 @@ public class CreateOrderRequest {
     private String voucherCode;
     private String customerNote;
     private List<OrderItemRequest> items;
+    private Boolean aiGenerated;
+    private String aiListCode;
+    private String aiListName;
 }

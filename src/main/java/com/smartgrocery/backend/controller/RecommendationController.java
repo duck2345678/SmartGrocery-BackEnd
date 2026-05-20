@@ -15,7 +15,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/recommendations")
-@Tag(name = "Recommendations", description = "API cho gá»£i Ã½ sáº£n pháº©m thÃ´ng minh")
+@Tag(name = "Recommendations", description = "API cho gợi ý sản phẩm thông minh")
 public class RecommendationController {
 
     @Autowired

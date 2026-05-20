@@ -84,6 +84,20 @@ public class Order {
     @Column(name = "delivery_photo_url", length = 500)
     private String deliveryPhotoUrl;
 
+    @Column(name = "ai_generated", nullable = false)
+    @Builder.Default
+    private Boolean aiGenerated = false;
+
+    @Column(name = "ai_list_code", length = 80)
+    private String aiListCode;
+
+    @Column(name = "ai_list_name", length = 160)
+    private String aiListName;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reward_voucher_id")
+    private Voucher rewardVoucher;
+
     @Column(name = "assigned_at")
     private LocalDateTime assignedAt;
 

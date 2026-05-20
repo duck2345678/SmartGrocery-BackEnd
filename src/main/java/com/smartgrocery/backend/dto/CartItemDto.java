@@ -28,4 +28,7 @@ public class CartItemDto {
     private Integer stock;
     private LocalDateTime addedAt;
     private Boolean allowSubstitution;
+    private String source;
+    private String aiListCode;
+    private String aiListName;
 }

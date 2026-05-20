@@ -32,11 +32,32 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
             where v.status = 'ACTIVE'
               and (
                 lower(v.product.name) like lower(concat('%', :keyword, '%'))
-                or lower(v.sku) like lower(concat('%', :keyword, '%'))
+                or lower(v.product.shortDescription) like lower(concat('%', :keyword, '%'))
               )
             order by v.updatedAt desc
     """)
     List<ProductVariant> searchActiveForSubstitution(@Param("keyword") String keyword);
+
+    @Query("""
+            select v from ProductVariant v join fetch v.product p
+            where v.status = 'ACTIVE' and p.status = 'ACTIVE'
+              and v.compareAtPrice is not null and v.compareAtPrice > v.netPrice
+            order by ((v.compareAtPrice - v.netPrice) / v.compareAtPrice) desc
+            limit 10
+    """)
+    List<ProductVariant> findTop10DiscountedVariants();
+
+    @Query("""
+            select v from ProductVariant v join fetch v.product p
+            where v.status = 'ACTIVE' and p.status = 'ACTIVE'
+              and (
+                lower(p.name) like lower(concat('%', :keyword, '%'))
+                or lower(p.category.name) like lower(concat('%', :keyword, '%'))
+              )
+            order by p.name asc
+            limit 10
+    """)
+    List<ProductVariant> findTop10ActiveByKeyword(@Param("keyword") String keyword);
 
     @Query("""
             select v from ProductVariant v

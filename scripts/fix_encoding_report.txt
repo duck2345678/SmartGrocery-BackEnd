@@ -1,0 +1,54 @@
+Starting encoding fix run at 05/17/2026 15:10:23
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\ai-debug.txt
+Removed UTF-8 BOM: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\register.json -> backup C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\register.json.bak.fixencoding_20260517151023
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\docs\checkout-substitution.md
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\docs\FOOD_ONTOLOGY_OPS.md
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\docs\GEMINI_MULTI_KEY_AND_NEO4J_CHAT.md
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\docs\ingredient-classification-guide.md
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\docs\product-image-upload.md
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\docs\staff-order-lease-contract.md
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\migrations\2026_05_04_01_add_attendance_tables.sql
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\scratch\CatalogCurator.java
+Removed UTF-8 BOM: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\scratch\health_after_fix.txt -> backup C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\scratch\health_after_fix.txt.bak.fixencoding_20260517151023
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\scratch\meal-catalog-stock-audit.json
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\scripts\fix_encoding.ps1
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\AdminAttendanceController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\AdminUtilityController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\AdminVoucherController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\FulfillmentController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\InventoryController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\ProductController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\PromotionController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\RecommendationController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\StaffAttendanceController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\StaffOrderController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\controller\WarehouseController.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\entity\Meal.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\entity\graph\SemanticCacheNode.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\repository\graph\SemanticCacheRepository.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\scheduler\AttendanceScheduler.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\security\JwtAuthenticationFilter.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\AdminCategoryService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\AdminProductService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\AttendanceService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\AutoOrderDispatchService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\CartInspectionService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\MealPlanService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\NutritionRecommendationService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\OrderAssignmentService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\OrderDispatchService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\OrderLifecycleService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\OrderService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\SeedService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\ShiftRequestService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\StaffOrderFlowService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\ai\IngredientComparisonService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\ai\MealDatabaseService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\ai\OpenRouterClient.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\recommendation\FoodDictionaryService.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\java\com\smartgrocery\backend\service\recommendation\FoodFamilyRules.java
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\resources\import_meals.sql
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\src\main\resources\prompts\memm-prompt-template.txt
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\target\classes\import_meals.sql
+Detected mojibake-like tokens but heuristic did not improve: C:\Users\ACER\Documents\1\SmartGrocery-BackEnd\target\classes\prompts\memm-prompt-template.txt
+Completed run at 05/17/2026 15:10:24. Files changed: 2

@@ -2,6 +2,8 @@ package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.VoucherDto;
 import com.smartgrocery.backend.dto.VoucherGenerationRequest;
+import com.smartgrocery.backend.entity.Order;
+import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.entity.Voucher;
 import com.smartgrocery.backend.repository.jpa.VoucherRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,16 @@ public class VoucherService {
     public List<VoucherDto> getAvailableVouchers() {
         LocalDateTime now = LocalDateTime.now();
         return voucherRepository.findAvailableAt(now)
+                .stream()
+                .filter(v -> v.getUsageLimit() == null || v.getUsageCount() == null || v.getUsageCount() < v.getUsageLimit())
+                .map(this::toDto)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<VoucherDto> getAvailableVouchers(User user) {
+        LocalDateTime now = LocalDateTime.now();
+        return voucherRepository.findVisibleForUserAt(user.getId(), now)
                 .stream()
                 .filter(v -> v.getUsageLimit() == null || v.getUsageCount() == null || v.getUsageCount() < v.getUsageLimit())
                 .map(this::toDto)
@@ -56,6 +68,8 @@ public class VoucherService {
                     .usageLimit(request.getUsageLimitPerVoucher())
                     .usageCount(0)
                     .active(true)
+                    .hidden(Boolean.TRUE.equals(request.getHidden()))
+                    .revealTrigger(Boolean.TRUE.equals(request.getHidden()) ? safeTrigger(request.getRevealTrigger()) : "PUBLIC")
                     .build();
             created.add(voucherRepository.save(v));
         }
@@ -66,6 +80,37 @@ public class VoucherService {
     @Transactional
     public void deleteVoucher(Long id) {
         voucherRepository.deleteById(id);
+    }
+
+    @Transactional
+    public Voucher assignPrecreatedAiReward(User user, Order order) {
+        List<Voucher> candidates = voucherRepository.findUnassignedAiRewardCandidates(LocalDateTime.now());
+        if (candidates.isEmpty()) {
+            // Generate a fresh 10% discount reward voucher on the fly to guarantee they always get rewarded!
+            String code = generateUniqueCode("AIPROMO");
+            Voucher reward = Voucher.builder()
+                    .voucherCode(code)
+                    .description("Phần thưởng mua sắm cùng Trợ lý AI (Giảm 10%)")
+                    .discountType("PERCENTAGE")
+                    .discountValue(java.math.BigDecimal.valueOf(10)) // 10% discount
+                    .minOrderAmount(java.math.BigDecimal.valueOf(100000)) // Min order 100k
+                    .maxDiscountAmount(java.math.BigDecimal.valueOf(50000)) // Max discount 50k
+                    .validFrom(LocalDateTime.now())
+                    .validUntil(LocalDateTime.now().plusDays(7)) // Valid for 7 days
+                    .usageLimit(1)
+                    .usageCount(0)
+                    .active(true)
+                    .hidden(true)
+                    .revealTrigger("AI_ORDER_COMPLETED")
+                    .assignedUser(user)
+                    .unlockedByOrder(order)
+                    .build();
+            return voucherRepository.save(reward);
+        }
+        Voucher reward = candidates.get(0);
+        reward.setAssignedUser(user);
+        reward.setUnlockedByOrder(order);
+        return voucherRepository.save(reward);
     }
 
     private String generateUniqueCode(String prefix) {
@@ -92,6 +137,22 @@ public class VoucherService {
                 .maxDiscountAmount(v.getMaxDiscountAmount())
                 .validUntil(v.getValidUntil())
                 .active(v.getActive())
+                .hidden(v.getHidden())
+                .revealTrigger(v.getRevealTrigger())
+                .assignedUserId(v.getAssignedUser() != null ? v.getAssignedUser().getId() : null)
+                .unlockedByOrderId(v.getUnlockedByOrder() != null ? v.getUnlockedByOrder().getId() : null)
+                .usageLimitPerVoucher(v.getUsageLimit())
+                .usedCount(v.getUsageCount())
+                .status(Boolean.TRUE.equals(v.getActive()) ? "ACTIVE" : "INACTIVE")
                 .build();
+    }
+
+    public VoucherDto toDtoPublic(Voucher voucher) {
+        return toDto(voucher);
+    }
+
+    private String safeTrigger(String trigger) {
+        if (trigger == null || trigger.isBlank()) return "AI_ORDER_COMPLETED";
+        return trigger.trim().substring(0, Math.min(trigger.trim().length(), 40));
     }
 }

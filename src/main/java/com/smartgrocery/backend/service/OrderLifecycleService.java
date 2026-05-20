@@ -31,6 +31,8 @@ public class OrderLifecycleService {
     private final OrderRepository orderRepository;
     private final AttendanceRecordRepository attendanceRecordRepository;
     private final Clock clock;
+    private final NotificationService notificationService;
+    private final VoucherService voucherService;
 
     @Transactional(value = "transactionManager")
     public OrderDto pack(Long orderId, User staff, String packingPhotoUrl) {
@@ -45,22 +47,56 @@ public class OrderLifecycleService {
         order.setPackingPhotoUrl(packingPhotoUrl.trim());
         order.setPickedAt(LocalDateTime.now(clock));
         order.setStatus(STATUS_READY_TO_SHIP);
-        return toDto(orderRepository.save(order));
+        
+        Order saved = orderRepository.save(order);
+
+        // Notify customer
+        try {
+            if (saved.getUser() != null) {
+                notificationService.sendNotification(
+                        saved.getUser(),
+                        "Đã đóng gói hàng",
+                        "Đơn hàng " + saved.getOrderNumber() + " của bạn đã được đóng gói cẩn thận và sẵn sàng giao hàng.",
+                        "ORDER_STATUS"
+                );
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+
+        return toDto(saved);
     }
 
     @Transactional(value = "transactionManager")
     public OrderDto deliver(Long orderId, User staff, String deliveryPhotoUrl) {
         validateStaffCheckedIn(staff);
         Order order = loadAssignableOrder(orderId, staff);
-        if (!STATUS_READY_TO_SHIP.equals(order.getStatus())) {
-            throw new IllegalArgumentException("Đơn phải ở trạng thái READY_TO_SHIP mới được bắt đầu giao");
+        if (!STATUS_READY_TO_SHIP.equals(order.getStatus()) && !STATUS_DELIVERING.equals(order.getStatus())) {
+            throw new IllegalArgumentException("Đơn phải ở trạng thái READY_TO_SHIP hoặc DELIVERING mới được bắt đầu giao");
         }
         if (deliveryPhotoUrl == null || deliveryPhotoUrl.isBlank()) {
             throw new IllegalArgumentException("Vui lòng tải ảnh giao hàng");
         }
         order.setDeliveryPhotoUrl(deliveryPhotoUrl.trim());
         order.setStatus(STATUS_DELIVERING);
-        return toDto(orderRepository.save(order));
+
+        Order saved = orderRepository.save(order);
+
+        // Notify customer
+        try {
+            if (saved.getUser() != null) {
+                notificationService.sendNotification(
+                        saved.getUser(),
+                        "Đơn hàng đang được giao",
+                        "Shipper " + staff.getFullName() + " đang giao đơn hàng " + saved.getOrderNumber() + " đến cho bạn.",
+                        "ORDER_STATUS"
+                );
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+
+        return toDto(saved);
     }
 
     @Transactional(value = "transactionManager")
@@ -72,7 +108,49 @@ public class OrderLifecycleService {
         }
         order.setDeliveredAt(LocalDateTime.now(clock));
         order.setStatus(STATUS_DELIVERED);
-        return toDto(orderRepository.save(order));
+
+        // Award AI voucher ONLY when order is successfully completed!
+        if (Boolean.TRUE.equals(order.getAiGenerated()) && order.getRewardVoucher() == null) {
+            try {
+                com.smartgrocery.backend.entity.Voucher reward = voucherService.assignPrecreatedAiReward(order.getUser(), order);
+                if (reward != null) {
+                    order.setRewardVoucher(reward);
+                    try {
+                        String notifyTitle = "🎁 Quà tặng mua sắm từ AI Assistant!";
+                        String notifyBody = "Bạn được tặng voucher " + reward.getVoucherCode() + " (" + reward.getDescription() + ") cho đơn hàng gợi ý từ AI đã hoàn thành.";
+                        notificationService.sendNotification(
+                                order.getUser(),
+                                notifyTitle,
+                                notifyBody,
+                                "VOUCHER_AWARDED",
+                                java.util.Map.of("route", "/(customer)/vouchers", "type", "VOUCHER_AWARDED")
+                        );
+                    } catch (Exception ne) {
+                        // Don't fail completion if notification fails
+                    }
+                }
+            } catch (Exception e) {
+                // Don't fail completion if voucher assignment fails
+            }
+        }
+
+        Order saved = orderRepository.save(order);
+
+        // Notify customer
+        try {
+            if (saved.getUser() != null) {
+                notificationService.sendNotification(
+                        saved.getUser(),
+                        "Giao hàng thành công",
+                        "Đơn hàng " + saved.getOrderNumber() + " đã được giao thành công. Cảm ơn bạn đã mua sắm tại SmartGrocery!",
+                        "ORDER_STATUS"
+                );
+            }
+        } catch (Exception e) {
+            // Ignore
+        }
+
+        return toDto(saved);
     }
 
     private void validateStaffCheckedIn(User staff) {
