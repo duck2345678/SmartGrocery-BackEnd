@@ -20,7 +20,6 @@ import java.util.HexFormat;
 @RequiredArgsConstructor
 public class EmailOtpService {
 
-    private static final int OTP_LENGTH = 6;
     private static final int MAX_ATTEMPTS = 5;
     private static final int MAX_SENDS_PER_HOUR = 5;
 

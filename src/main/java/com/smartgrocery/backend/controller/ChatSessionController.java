@@ -1,7 +1,6 @@
 package com.smartgrocery.backend.controller;
 
 import com.smartgrocery.backend.dto.*;
-import com.smartgrocery.backend.entity.ChatMessage;
 import com.smartgrocery.backend.entity.ChatSession;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.service.ChatHistoryService;

@@ -68,23 +68,29 @@ public class OpenRouterConfig {
         return apiKeys.split(",");
     }
 
-    public String getModel() {
+    public String cleanModelName(String rawModelName) {
+        if (rawModelName == null) return null;
+        if ("deepseek".equalsIgnoreCase(provider)) {
+            if (rawModelName.toLowerCase().contains("reasoner") || rawModelName.toLowerCase().contains("r1")) {
+                return "deepseek-reasoner";
+            }
+            return "deepseek-chat";
+        }
         if ("gemini".equalsIgnoreCase(provider) || (apiKeys != null && apiKeys.trim().startsWith("AIzaSy"))) {
-            if (model != null && model.contains("/")) {
-                return model.substring(model.lastIndexOf("/") + 1).replace(":free", "");
+            if (rawModelName.contains("/")) {
+                return rawModelName.substring(rawModelName.lastIndexOf("/") + 1).replace(":free", "");
             }
         }
-        return model;
+        return rawModelName;
+    }
+
+    public String getModel() {
+        return cleanModelName(model);
     }
 
     public String getPass1Model() {
         String m = (pass1Model != null && !pass1Model.isBlank()) ? pass1Model : model;
-        if ("gemini".equalsIgnoreCase(provider) || (apiKeys != null && apiKeys.trim().startsWith("AIzaSy"))) {
-            if (m != null && m.contains("/")) {
-                return m.substring(m.lastIndexOf("/") + 1).replace(":free", "");
-            }
-        }
-        return m;
+        return cleanModelName(m);
     }
 
     public String getProvider() {

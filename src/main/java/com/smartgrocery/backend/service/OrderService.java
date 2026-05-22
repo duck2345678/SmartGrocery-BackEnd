@@ -16,7 +16,6 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -36,9 +35,6 @@ public class OrderService {
     private CartItemRepository cartItemRepository;
 
     @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
     private UserAddressRepository userAddressRepository;
 
     @Autowired
@@ -49,9 +45,6 @@ public class OrderService {
 
     @Autowired
     private InventoryStockRepository inventoryStockRepository;
-
-    @Autowired
-    private NotificationService notificationService;
 
     @Autowired
     private WarehouseRepository warehouseRepository;

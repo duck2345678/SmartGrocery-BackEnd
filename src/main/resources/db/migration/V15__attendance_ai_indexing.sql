@@ -7,5 +7,5 @@ CREATE INDEX IF NOT EXISTS idx_product_variants_status_price ON product_variants
 -- 2. Enable pg_trgm extension for trigram matching
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- 3. GIN index using gin_trgm_ops on products(name) for rapid full-text/fuzzy search by AI Chatbot
-CREATE INDEX IF NOT EXISTS idx_products_name_trgm ON products USING gin (name gin_trgm_ops);
+-- 3. GIN index using gin_trgm_ops on products(product_name) for rapid full-text/fuzzy search by AI Chatbot
+CREATE INDEX IF NOT EXISTS idx_products_name_trgm ON products USING gin (product_name gin_trgm_ops);

@@ -25,7 +25,6 @@ import com.smartgrocery.backend.repository.jpa.WarehouseRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.smartgrocery.backend.service.NotificationService;
 
 import java.math.BigDecimal;
 import java.time.Clock;

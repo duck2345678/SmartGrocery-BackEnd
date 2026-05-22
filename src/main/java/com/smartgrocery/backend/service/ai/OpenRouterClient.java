@@ -60,9 +60,8 @@ public class OpenRouterClient {
     public Mono<AiCompletionResult> chatCompletion(String systemPrompt, List<Map<String, String>> messages, String modelName, Duration timeout) {
         return chatCompletion(systemPrompt, messages, null, modelName, timeout);
     }
-
     public Mono<AiCompletionResult> chatCompletion(String systemPrompt, List<Map<String, String>> messages, List<ObjectNode> tools, String modelName, Duration timeout) {
-        String finalModel = (modelName != null && !modelName.isBlank()) ? modelName : config.getModel();
+        String finalModel = config.cleanModelName((modelName != null && !modelName.isBlank()) ? modelName : config.getModel());
         
         return Mono.defer(() -> {
             String apiKey = getNextApiKey();
@@ -163,7 +162,7 @@ public class OpenRouterClient {
 
 
     public reactor.core.publisher.Flux<String> streamChatCompletion(String systemPrompt, List<Map<String, String>> messages, String modelName) {
-        String finalModel = (modelName != null && !modelName.isBlank()) ? modelName : config.getModel();
+        String finalModel = config.cleanModelName((modelName != null && !modelName.isBlank()) ? modelName : config.getModel());
         String apiKey = getNextApiKey();
         ObjectNode body = buildRequestBody(systemPrompt, messages, null, finalModel);
         body.put("stream", true);
