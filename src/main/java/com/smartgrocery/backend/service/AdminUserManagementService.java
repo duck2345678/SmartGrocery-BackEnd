@@ -48,7 +48,10 @@ public class AdminUserManagementService {
         Specification<User> spec = Specification.where(null);
         if (role != null && !role.isBlank()) {
             String normalizedRole = role.trim().toUpperCase(Locale.ROOT);
-            spec = spec.and((root, q, cb) -> cb.equal(cb.upper(root.join("role").get("name")), normalizedRole));
+            Long roleId = roleRepository.findByName(normalizedRole)
+                    .map(Role::getId)
+                    .orElse(-1L);
+            spec = spec.and((root, q, cb) -> cb.equal(root.get("role").get("id"), roleId));
         }
         if (status != null && !status.isBlank()) {
             String normalizedStatus = status.trim().toUpperCase(Locale.ROOT);
@@ -63,9 +66,18 @@ public class AdminUserManagementService {
             spec = spec.and((root, q, cb) -> cb.lessThan(root.get("createdAt"), to));
         }
         if (isStaff) {
-            spec = spec.and((root, q, cb) -> cb.equal(cb.upper(root.join("role").get("name")), "CUSTOMER"));
+            Long customerRoleId = roleRepository.findByName("CUSTOMER")
+                    .map(Role::getId)
+                    .orElse(-1L);
+            spec = spec.and((root, q, cb) -> cb.equal(root.get("role").get("id"), customerRoleId));
         }
         return userRepository.findAll(spec, PageRequest.of(safePage, safeSize)).map(this::toDto);
+    }
+
+    @Transactional(readOnly = true)
+    public long countByRole(String role) {
+        if (role == null || role.isBlank()) return userRepository.count();
+        return userRepository.countByRole_NameIgnoreCase(role.trim());
     }
 
     @Transactional

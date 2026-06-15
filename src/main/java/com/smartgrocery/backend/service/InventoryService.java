@@ -18,13 +18,13 @@ public class InventoryService {
     private InventoryStockRepository inventoryStockRepository;
 
     public List<InventoryStockDto> getAll() {
-        return inventoryStockRepository.findAll().stream()
+        return inventoryStockRepository.findAllWithRelations().stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
     public List<InventoryStockDto> getByWarehouse(Long warehouseId) {
-        return inventoryStockRepository.findByWarehouseId(warehouseId).stream()
+        return inventoryStockRepository.findByWarehouseIdWithRelations(warehouseId).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }

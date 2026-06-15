@@ -19,6 +19,12 @@ public interface InventoryStockRepository extends JpaRepository<InventoryStock, 
         Long getTotalAvailable();
     }
 
+    @Query("select s from InventoryStock s join fetch s.warehouse join fetch s.variant v join fetch v.product")
+    List<InventoryStock> findAllWithRelations();
+
+    @Query("select s from InventoryStock s join fetch s.warehouse join fetch s.variant v join fetch v.product where s.warehouse.id = :warehouseId")
+    List<InventoryStock> findByWarehouseIdWithRelations(@Param("warehouseId") Long warehouseId);
+
     List<InventoryStock> findByWarehouseId(Long warehouseId);
     
     @Lock(LockModeType.PESSIMISTIC_WRITE)

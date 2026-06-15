@@ -23,6 +23,7 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     Optional<User> findByFirebaseUid(String firebaseUid);
     java.util.List<User> findByRole_Name(String roleName);
     java.util.List<User> findByRole_NameAndStatus(String roleName, String status);
+    long countByRole_NameIgnoreCase(String roleName);
     boolean existsByEmailAndIdNot(String email, Long id);
     boolean existsByPhoneAndIdNot(String phone, Long id);
 

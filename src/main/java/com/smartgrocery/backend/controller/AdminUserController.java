@@ -50,6 +50,13 @@ public class AdminUserController {
         return ResponseEntity.ok(adminUserManagementService.search(actor, role, status, createdFrom, createdTo, page, size));
     }
 
+    @Operation(summary = "Đếm user theo role")
+    @GetMapping("/count")
+    public ResponseEntity<Long> count(@RequestParam(required = false) String role) {
+        assertAdminOrStaff();
+        return ResponseEntity.ok(adminUserManagementService.countByRole(role));
+    }
+
     @Operation(summary = "Tạo user")
     @PostMapping
     public ResponseEntity<AdminUserDto> create(@AuthenticationPrincipal User actor, @RequestBody AdminUserUpsertRequest request) {
