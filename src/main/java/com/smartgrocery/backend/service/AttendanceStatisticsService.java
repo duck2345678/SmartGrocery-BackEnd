@@ -161,6 +161,18 @@ public class AttendanceStatisticsService {
         List<AttendanceRecord> records = attendanceRecordRepository.findAll().stream()
                 .filter(r -> !r.getWorkDate().isBefore(start) && !r.getWorkDate().isAfter(end))
                 .toList();
+        long scheduledToday = schedules.stream()
+                .filter(s -> today.equals(s.getWorkDate()))
+                .filter(s -> s.getUser() != null)
+                .filter(s -> Set.of("S", "C", "G").contains(normalize(s.getShiftType())))
+                .map(s -> s.getUser().getId())
+                .distinct()
+                .count();
+        long activeToday = attendanceRecordRepository.findByWorkDateAndCheckInAtIsNotNullAndCheckOutAtIsNull(today).stream()
+                .filter(r -> r.getUser() != null)
+                .map(r -> r.getUser().getId())
+                .distinct()
+                .count();
 
         Map<Long, UserStats> stats = new HashMap<>();
 
@@ -235,6 +247,8 @@ public class AttendanceStatisticsService {
                 .collect(Collectors.toList());
 
         return AttendanceInsightDto.builder()
+                .scheduledToday(scheduledToday)
+                .activeToday(activeToday)
                 .chartPoints(buildChartPoints(start, end, scheduleMap, recordMap, today))
                 .lateRanking(lateRanking)
                 .absentRanking(absentRanking)

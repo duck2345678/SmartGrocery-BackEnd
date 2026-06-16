@@ -1,6 +1,7 @@
 package com.smartgrocery.backend.service;
 
 import com.smartgrocery.backend.dto.AdminShiftRequestItemDto;
+import com.smartgrocery.backend.dto.AdminShiftScheduleItemDto;
 import com.smartgrocery.backend.dto.AdminShiftRequestStatusRequest;
 import com.smartgrocery.backend.dto.ShiftRequestCreateRequest;
 import com.smartgrocery.backend.dto.ShiftRequestDto;
@@ -156,6 +157,31 @@ public class ShiftRequestService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<AdminShiftScheduleItemDto> adminScheduleList(LocalDate from, LocalDate to) {
+        LocalDate start = from != null ? from : LocalDate.now();
+        LocalDate end = to != null ? to : start;
+
+        return shiftScheduleRepository.findByWorkDateBetween(start, end).stream()
+                .filter(s -> s.getUser() != null)
+                .filter(s -> ALLOWED_SHIFT_TYPES.contains(normalizeShiftType(s.getShiftType())))
+                .sorted((a, b) -> {
+                    int cmp = a.getWorkDate().compareTo(b.getWorkDate());
+                    if (cmp != 0) return cmp;
+                    return String.valueOf(a.getUser().getFullName()).compareToIgnoreCase(String.valueOf(b.getUser().getFullName()));
+                })
+                .map(s -> AdminShiftScheduleItemDto.builder()
+                        .id(s.getId())
+                        .userId(s.getUser().getId())
+                        .userFullName(s.getUser().getFullName())
+                        .workDate(s.getWorkDate())
+                        .shiftType(s.getShiftType())
+                        .selectedBlocks(s.getSelectedBlocks())
+                        .createdAt(s.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     public ShiftRequestDto adminUpdateStatus(Long id, AdminShiftRequestStatusRequest request) {
         if (request == null || request.getStatus() == null) {
@@ -252,4 +278,3 @@ public class ShiftRequestService {
                 .build();
     }
 }
-

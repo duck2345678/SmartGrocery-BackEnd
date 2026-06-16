@@ -50,6 +50,32 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     @Query("""
             select v from ProductVariant v join fetch v.product p
             where v.status = 'ACTIVE' and p.status = 'ACTIVE'
+              and v.compareAtPrice is not null and v.compareAtPrice > v.netPrice
+            order by ((v.compareAtPrice - v.netPrice) / v.compareAtPrice) desc
+    """)
+    List<ProductVariant> findAllDiscountedVariants();
+
+    @Query("""
+            select v from ProductVariant v join fetch v.product p
+            where v.status = 'ACTIVE' and p.status = 'ACTIVE'
+              and v.compareAtPrice is not null and v.compareAtPrice > v.netPrice
+              and lower(p.name) like lower(concat('%', :keyword, '%'))
+            order by ((v.compareAtPrice - v.netPrice) / v.compareAtPrice) desc
+    """)
+    List<ProductVariant> findDiscountedVariantsByKeyword(@Param("keyword") String keyword);
+
+    @Query("""
+            select v from ProductVariant v join fetch v.product p
+            where p.id in :productIds
+              and v.status = 'ACTIVE' and p.status = 'ACTIVE'
+              and v.compareAtPrice is not null and v.compareAtPrice > v.netPrice
+            order by ((v.compareAtPrice - v.netPrice) / v.compareAtPrice) desc
+    """)
+    List<ProductVariant> findDiscountedVariantsByProductIds(@Param("productIds") List<Long> productIds);
+
+    @Query("""
+            select v from ProductVariant v join fetch v.product p
+            where v.status = 'ACTIVE' and p.status = 'ACTIVE'
               and (
                 lower(p.name) like lower(concat('%', :keyword, '%'))
                 or lower(p.category.name) like lower(concat('%', :keyword, '%'))
@@ -58,6 +84,27 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
             limit 10
     """)
     List<ProductVariant> findTop10ActiveByKeyword(@Param("keyword") String keyword);
+
+    @Query("""
+            select v from ProductVariant v join fetch v.product p
+            join p.category c
+            where v.status = 'ACTIVE' and p.status = 'ACTIVE'
+              and c.categoryCode = :categoryCode
+            order by p.isFeatured desc, v.updatedAt desc
+            limit :limit
+    """)
+    List<ProductVariant> findActiveByCategoryCode(
+            @Param("categoryCode") String categoryCode,
+            @Param("limit") int limit
+    );
+
+    @Query("""
+            select v from ProductVariant v join fetch v.product p
+            where v.status = 'ACTIVE' and p.status = 'ACTIVE'
+              and lower(p.name) like lower(concat('%', :keyword, '%'))
+            order by p.name asc
+    """)
+    List<ProductVariant> findActiveVariantsByKeywordNameOnly(@Param("keyword") String keyword);
 
     @Query("""
             select v from ProductVariant v

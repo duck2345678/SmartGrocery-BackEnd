@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/admin/audit-logs")
 @Tag(name = "Admin - Audit Logs", description = "Truy vết thao tác nhạy cảm")

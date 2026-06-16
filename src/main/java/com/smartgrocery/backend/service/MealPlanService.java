@@ -8,6 +8,7 @@ import com.smartgrocery.backend.repository.jpa.*;
 import com.smartgrocery.backend.repository.graph.ProductNodeRepository;
 import com.smartgrocery.backend.security.SecurityUtils;
 import com.smartgrocery.backend.service.ai.OpenRouterClient;
+import com.smartgrocery.backend.service.recommendation.AllergyRules;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,6 +49,9 @@ public class MealPlanService {
     @Autowired
     private ProductNodeRepository productNodeRepository;
 
+    @Autowired
+    private AllergyRules allergyRules;
+
     public List<MealPlan> getByUserId(Long userId) {
         SecurityUtils.verifyOwnershipOrAdmin(userId);
         return mealPlanRepository.findByUser_IdOrderByCreatedAtDesc(userId);
@@ -70,7 +73,7 @@ public class MealPlanService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         UserNutritionProfile profile = nutritionProfileRepository.findByUser_Id(userId).orElse(null);
-        Set<String> allergyTokens = extractAllergyTokens(profile != null ? profile.getAllergies() : null);
+        Set<String> allergyTokens = allergyRules.extractTokens(profile != null ? profile.getAllergies() : null);
 
         // Build context from nutrition profile
         StringBuilder context = new StringBuilder();
@@ -185,7 +188,7 @@ public class MealPlanService {
                                 }
 
                                 String productName = variant.getProduct() != null ? variant.getProduct().getName() : "";
-                                if (containsAllergy(productName, allergyTokens)) {
+                                if (allergyRules.matchesAny(productName, allergyTokens)) {
                                     skippedItems++;
                                     structured.getAllergyWarnings().add("Đã loại bỏ sản phẩm chứa thành phần dị ứng: " + productName);
                                     continue;
@@ -238,24 +241,6 @@ public class MealPlanService {
         structured.setTrustScore(Math.max(40, Math.min(95, trust)));
         structured.setMealPlan(plan);
         return structured;
-    }
-
-    private Set<String> extractAllergyTokens(String allergies) {
-        if (allergies == null || allergies.isBlank()) return Set.of();
-        Set<String> tokens = new HashSet<>();
-        for (String token : allergies.split("[,;/]")) {
-            String t = token == null ? "" : token.trim().toLowerCase();
-            if (!t.isBlank()) tokens.add(t);
-        }
-        return tokens;
-    }
-
-    private boolean containsAllergy(String productName, Set<String> allergyTokens) {
-        if (productName == null || productName.isBlank() || allergyTokens == null || allergyTokens.isEmpty()) {
-            return false;
-        }
-        String name = productName.toLowerCase();
-        return allergyTokens.stream().anyMatch(name::contains);
     }
 
     private String buildReasonText(UserNutritionProfile profile, MealPlanItem item, ProductVariant variant) {

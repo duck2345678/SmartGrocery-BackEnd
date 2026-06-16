@@ -19,6 +19,9 @@ public class AdminOpsMonitorService {
 
     private static final Duration SLA_TARGET = Duration.ofMinutes(30);
     private static final Duration STALLED_THRESHOLD = Duration.ofMinutes(10);
+    private static final List<String> ACTIVE_ASSIGNMENT_STATUSES = List.of(
+            "ASSIGNED", "PICKING", "PICKED", "READY_TO_SHIP", "DELIVERING"
+    );
 
     private final OrderRepository orderRepository;
 
@@ -33,7 +36,7 @@ public class AdminOpsMonitorService {
                 .limit(50)
                 .toList();
 
-        List<AdminOpsOrderDto> stalled = orderRepository.findAssignedOrders("ASSIGNED").stream()
+        List<AdminOpsOrderDto> stalled = orderRepository.findActiveAssignments(ACTIVE_ASSIGNMENT_STATUSES).stream()
                 .filter(o -> o.getUpdatedAt() != null)
                 .map(o -> toDto(o, now))
                 .filter(dto -> dto.getMinutesSinceUpdate() != null && dto.getMinutesSinceUpdate() >= (int) STALLED_THRESHOLD.toMinutes())

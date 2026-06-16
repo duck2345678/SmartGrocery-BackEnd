@@ -27,6 +27,15 @@ public class VoucherDto {
     private Long assignedUserId;
     private Long unlockedByOrderId;
     private Integer usageLimitPerVoucher;
+    private Integer claimCount;
+    private Integer minAge;
+    private Integer maxAge;
     private Integer usedCount;
     private String status;
+    private LocalDateTime claimedAt;
+    private Boolean claimed;
+    private Boolean used;
+    private LocalDateTime usedAt;
+    private String claimStatus;
+    private LocalDateTime claimExpiresAt;
 }

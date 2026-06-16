@@ -14,6 +14,7 @@ import java.util.Optional;
 @Repository
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
     List<Product> findByCategoryId(Long categoryId);
+    long countByCategoryId(Long categoryId);
     List<Product> findByNameContainingIgnoreCase(String name);
     Optional<Product> findByProductCode(String productCode);
 

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -59,7 +60,16 @@ public class OrderService {
     private UserVoucherUsageRepository userVoucherUsageRepository;
 
     @Autowired
+    private UserClaimedVoucherRepository userClaimedVoucherRepository;
+
+    @Autowired
     private VoucherService voucherService;
+
+    @Autowired
+    private NotificationService notificationService;
+
+    @Autowired(required = false)
+    private Clock clock = Clock.systemDefaultZone();
 
     @Transactional(rollbackFor = Exception.class)
     public OrderDto createOrder(User user, CreateOrderRequest request) {
@@ -108,7 +118,7 @@ public class OrderService {
             }
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         LocalTime currentTime = now.toLocalTime();
         LocalTime blockStart = LocalTime.of(22, 0);
         LocalTime blockEnd = LocalTime.of(6, 0);
@@ -191,10 +201,15 @@ public class OrderService {
         if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
             Voucher voucher = voucherRepository.findByVoucherCode(request.getVoucherCode().trim())
                     .orElseThrow(() -> new RuntimeException("Voucher không tồn tại"));
-            validateVoucher(voucher, subtotal);
+            validateVoucher(user, voucher, subtotal);
+            UserClaimedVoucher claim = userClaimedVoucherRepository.findUsableClaim(user.getId(), voucher.getId(), now)
+                .orElseThrow(() -> new RuntimeException("Voucher chưa được nhận hoặc đã hết hạn"));
             discount = computeDiscount(voucher, subtotal);
             voucher.setUsageCount((voucher.getUsageCount() != null ? voucher.getUsageCount() : 0) + 1);
             voucherRepository.save(voucher);
+            claim.setUsed(true);
+            claim.setUsedAt(now);
+            userClaimedVoucherRepository.save(claim);
             upsertUserVoucherUsage(user, voucher);
         }
 
@@ -234,6 +249,21 @@ public class OrderService {
             autoOrderDispatchService.tryAutoAssign(savedOrder.getId());
         }
 
+        // 9. Notify Customer of Successful Order Placement
+        try {
+            if (savedOrder.getUser() != null) {
+                notificationService.sendNotification(
+                        savedOrder.getUser(),
+                        "Đặt hàng thành công",
+                        "Đơn hàng " + savedOrder.getOrderNumber() + " của bạn đã được tạo thành công và đang chờ xử lý.",
+                        "ORDER_STATUS",
+                        java.util.Map.of("route", "/(customer)/orders/" + savedOrder.getId(), "orderId", String.valueOf(savedOrder.getId()), "type", "ORDER_STATUS")
+                );
+            }
+        } catch (Exception e) {
+            // Ignore notification failure so it doesn't block transaction completion
+        }
+
         return mapToDto(savedOrder);
     }
 
@@ -253,6 +283,16 @@ public class OrderService {
         if (!order.getUser().getId().equals(userId)) {
             throw new RuntimeException("Forbidden");
         }
+        return mapToDto(order);
+    }
+
+    @Transactional(readOnly = true)
+    public OrderDto getOrderDetailForAdmin(Long orderId) {
+        if (!SecurityUtils.hasAnyRole("ADMIN")) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied");
+        }
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
         return mapToDto(order);
     }
 
@@ -300,16 +340,20 @@ public class OrderService {
     }
 
     private OrderDto mapToDto(Order order) {
+        UserAddress address = order.getAddress();
+        User customer = order.getUser();
         return OrderDto.builder()
                 .id(order.getId())
-                .userId(order.getUser().getId())
-                .addressId(order.getAddress() != null ? order.getAddress().getId() : null)
-                .addressLine(order.getAddress() != null ? 
+                .userId(customer != null ? customer.getId() : null)
+                .addressId(address != null ? address.getId() : null)
+                .receiverName(address != null ? address.getReceiverName() : customer != null ? customer.getFullName() : null)
+                .receiverPhone(address != null ? address.getReceiverPhone() : customer != null ? customer.getPhone() : null)
+                .addressLine(address != null ? 
                         String.format("%s, %s, %s, %s", 
-                            order.getAddress().getStreetAddress(), 
-                            order.getAddress().getWard(), 
-                            order.getAddress().getDistrict(), 
-                            order.getAddress().getCity()) : null)
+                            address.getStreetAddress(), 
+                            address.getWard(), 
+                            address.getDistrict(), 
+                            address.getCity()) : null)
                 .orderNumber(order.getOrderNumber())
                 .subtotal(order.getSubtotal())
                 .discountAmount(order.getDiscountAmount())
@@ -355,7 +399,7 @@ public class OrderService {
                 .build();
     }
 
-    private void validateVoucher(Voucher voucher, BigDecimal subtotal) {
+    private void validateVoucher(User user, Voucher voucher, BigDecimal subtotal) {
         LocalDateTime now = LocalDateTime.now();
         if (!Boolean.TRUE.equals(voucher.getActive())) {
             throw new RuntimeException("Voucher đã bị vô hiệu");
@@ -371,6 +415,10 @@ public class OrderService {
         }
         if (voucher.getMinOrderAmount() != null && subtotal.compareTo(voucher.getMinOrderAmount()) < 0) {
             throw new RuntimeException("Đơn hàng chưa đạt mức tối thiểu để áp dụng voucher");
+        }
+        java.util.Optional<UserVoucherUsage> usageOpt = userVoucherUsageRepository.findByUser_IdAndVoucher_Id(user.getId(), voucher.getId());
+        if (usageOpt.isPresent() && usageOpt.get().getUsedCount() != null && usageOpt.get().getUsedCount() >= 1) {
+            throw new RuntimeException("Bạn đã sử dụng voucher này rồi");
         }
     }
 

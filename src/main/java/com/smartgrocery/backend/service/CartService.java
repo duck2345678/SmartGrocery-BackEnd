@@ -55,8 +55,8 @@ public class CartService {
 
         String source = normalizeSource(request.getSource());
         String aiListCode = normalizeAiListCode(request.getAiListCode());
-        Optional<CartItem> existingItem = cartItemRepository.findByCart_IdAndVariant_IdAndSourceAndAiListCode(
-                cart.getId(), variant.getId(), source, aiListCode);
+        Optional<CartItem> existingItem = cartItemRepository.findByCart_IdAndVariant_Id(
+                cart.getId(), variant.getId());
 
         if (existingItem.isPresent()) {
             CartItem item = existingItem.get();
@@ -97,8 +97,8 @@ public class CartService {
 
             String source = normalizeSource(request.getSource());
             String aiListCode = normalizeAiListCode(request.getAiListCode());
-            Optional<CartItem> existingItem = cartItemRepository.findByCart_IdAndVariant_IdAndSourceAndAiListCode(
-                    cart.getId(), variant.getId(), source, aiListCode);
+            Optional<CartItem> existingItem = cartItemRepository.findByCart_IdAndVariant_Id(
+                    cart.getId(), variant.getId());
             if (existingItem.isPresent()) {
                 CartItem item = existingItem.get();
                 item.setQuantity(item.getQuantity() + request.getQuantity());
@@ -121,11 +121,27 @@ public class CartService {
         return getCart(user.getId());
     }
 
+    public CartDto removeCartItems(User user, List<Long> cartItemIds) {
+        List<CartItem> items = cartItemRepository.findAllById(cartItemIds);
+        for (CartItem item : items) {
+            SecurityUtils.verifyResourceOwnerOrAdmin(item.getCart().getUser().getId(), "CartItem", item.getId());
+        }
+        cartItemRepository.deleteAll(items);
+        return getCart(user.getId());
+    }
+
     public CartDto removeCartItem(User user, Long cartItemId) {
         CartItem item = cartItemRepository.findById(cartItemId)
                 .orElseThrow(() -> new RuntimeException("Cart item not found"));
         SecurityUtils.verifyResourceOwnerOrAdmin(item.getCart().getUser().getId(), "CartItem", cartItemId);
         cartItemRepository.deleteById(cartItemId);
+        return getCart(user.getId());
+    }
+
+    public CartDto clearCart(User user) {
+        Cart cart = getOrCreateCart(user.getId());
+        List<CartItem> items = cartItemRepository.findByCart_Id(cart.getId());
+        cartItemRepository.deleteAll(items);
         return getCart(user.getId());
     }
 

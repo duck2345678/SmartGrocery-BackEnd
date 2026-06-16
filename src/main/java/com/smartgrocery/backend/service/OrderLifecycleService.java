@@ -57,7 +57,8 @@ public class OrderLifecycleService {
                         saved.getUser(),
                         "Đã đóng gói hàng",
                         "Đơn hàng " + saved.getOrderNumber() + " của bạn đã được đóng gói cẩn thận và sẵn sàng giao hàng.",
-                        "ORDER_STATUS"
+                        "ORDER_STATUS",
+                        java.util.Map.of("route", "/(customer)/orders/" + saved.getId(), "orderId", String.valueOf(saved.getId()), "type", "ORDER_STATUS")
                 );
             }
         } catch (Exception e) {
@@ -89,7 +90,8 @@ public class OrderLifecycleService {
                         saved.getUser(),
                         "Đơn hàng đang được giao",
                         "Shipper " + staff.getFullName() + " đang giao đơn hàng " + saved.getOrderNumber() + " đến cho bạn.",
-                        "ORDER_STATUS"
+                        "ORDER_STATUS",
+                        java.util.Map.of("route", "/(customer)/orders/" + saved.getId(), "orderId", String.valueOf(saved.getId()), "type", "ORDER_STATUS")
                 );
             }
         } catch (Exception e) {
@@ -143,7 +145,8 @@ public class OrderLifecycleService {
                         saved.getUser(),
                         "Giao hàng thành công",
                         "Đơn hàng " + saved.getOrderNumber() + " đã được giao thành công. Cảm ơn bạn đã mua sắm tại SmartGrocery!",
-                        "ORDER_STATUS"
+                        "ORDER_STATUS",
+                        java.util.Map.of("route", "/(customer)/orders/" + saved.getId(), "orderId", String.valueOf(saved.getId()), "type", "ORDER_STATUS")
                 );
             }
         } catch (Exception e) {

@@ -1,7 +1,10 @@
 package com.smartgrocery.backend.repository.jpa;
 
 import com.smartgrocery.backend.entity.Order;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,12 +15,112 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface OrderRepository extends JpaRepository<Order, Long> {
+public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecificationExecutor<Order> {
+    interface StatusCountProjection {
+        String getStatus();
+        Long getCount();
+    }
+
     List<Order> findByUser_Id(Long userId);
     List<Order> findByUser_IdOrderByCreatedAtDesc(Long userId);
     long countByUser_IdAndStatus(Long userId, String status);
     Optional<Order> findByOrderNumber(String orderNumber);
     List<Order> findTop200ByUser_IdAndStatusNotOrderByCreatedAtDesc(Long userId, String excludedStatus);
+
+       List<Order> findByCreatedAtBetween(LocalDateTime from, LocalDateTime to);
+
+       Page<Order> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+       long countByCreatedAtGreaterThanEqualAndCreatedAtLessThan(LocalDateTime from, LocalDateTime to);
+
+       long countByStatusAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(String status, LocalDateTime from, LocalDateTime to);
+
+       @Query("""
+              select coalesce(sum(o.totalAmount), 0)
+              from Order o
+              where o.status = :status
+                and o.createdAt >= :from
+                and o.createdAt < :to
+              """)
+       java.math.BigDecimal sumTotalAmountByStatusAndCreatedAtRange(
+               @Param("status") String status,
+               @Param("from") LocalDateTime from,
+               @Param("to") LocalDateTime to
+       );
+
+       @Query("""
+              select coalesce(sum(o.subtotal), 0)
+              from Order o
+              where o.status = :status
+                and o.createdAt >= :from
+                and o.createdAt < :to
+              """)
+       java.math.BigDecimal sumSubtotalByStatusAndCreatedAtRange(
+               @Param("status") String status,
+               @Param("from") LocalDateTime from,
+               @Param("to") LocalDateTime to
+       );
+
+       @Query("""
+              select coalesce(sum(o.discountAmount), 0)
+              from Order o
+              where o.status = :status
+                and o.createdAt >= :from
+                and o.createdAt < :to
+              """)
+       java.math.BigDecimal sumDiscountAmountByStatusAndCreatedAtRange(
+               @Param("status") String status,
+               @Param("from") LocalDateTime from,
+               @Param("to") LocalDateTime to
+       );
+
+       @Query("""
+              select coalesce(sum(o.shippingFee), 0)
+              from Order o
+              where o.status = :status
+                and o.createdAt >= :from
+                and o.createdAt < :to
+              """)
+       java.math.BigDecimal sumShippingFeeByStatusAndCreatedAtRange(
+               @Param("status") String status,
+               @Param("from") LocalDateTime from,
+               @Param("to") LocalDateTime to
+       );
+
+       @Query("""
+              select o.status as status, count(o) as count
+              from Order o
+              group by o.status
+              """)
+       List<StatusCountProjection> countAllGroupedByStatus();
+
+       @Query("""
+              select o.status as status, count(o) as count
+              from Order o
+              where o.createdAt >= :from
+                and o.createdAt < :to
+              group by o.status
+              """)
+       List<StatusCountProjection> countGroupedByStatusAndCreatedAtRange(
+               @Param("from") LocalDateTime from,
+               @Param("to") LocalDateTime to
+       );
+
+       @Query("""
+              select o from Order o
+              where o.status = :status
+                and o.createdAt >= :from
+                and o.createdAt < :to
+              """)
+       List<Order> findRevenueOrdersByStatusAndCreatedAtRange(
+               @Param("status") String status,
+               @Param("from") LocalDateTime from,
+               @Param("to") LocalDateTime to
+       );
+
+       long countByStatus(String status);
+
+       long countByStatusIn(java.util.List<String> statuses);
 
     @Modifying
     @Query("""

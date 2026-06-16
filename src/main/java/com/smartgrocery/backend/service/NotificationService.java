@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -37,6 +38,8 @@ public class NotificationService {
                 .title(title)
                 .message(body)
                 .notificationType(type)
+                .orderId(extractOrderId(data))
+                .route(extractRoute(data))
                 .isRead(false)
                 .build();
         notificationRepository.save(notification);
@@ -58,10 +61,10 @@ public class NotificationService {
                 .collect(Collectors.toList());
 
         if (!expoTokens.isEmpty()) {
-            expoPushService.sendMulticast(expoTokens, title, body, pushData);
+            CompletableFuture.runAsync(() -> expoPushService.sendMulticast(expoTokens, title, body, pushData));
         }
         if (!fcmTokens.isEmpty()) {
-            fcmService.sendMulticastNotification(fcmTokens, title, body, pushData);
+            CompletableFuture.runAsync(() -> fcmService.sendMulticastNotification(fcmTokens, title, body, pushData));
         }
 
         if (expoTokens.isEmpty() && fcmTokens.isEmpty()) {
@@ -92,5 +95,40 @@ public class NotificationService {
         for (User user : users) {
             sendNotification(user, title, body, type, data);
         }
+    }
+
+    private Long extractOrderId(Map<String, String> data) {
+        if (data == null) {
+            return null;
+        }
+        String raw = data.get("orderId");
+        if (raw == null || raw.isBlank()) {
+            String route = data.get("route");
+            if (route != null) {
+                int idx = route.lastIndexOf('/');
+                if (idx >= 0 && idx + 1 < route.length()) {
+                    raw = route.substring(idx + 1);
+                }
+            }
+        }
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String extractRoute(Map<String, String> data) {
+        if (data == null) {
+            return null;
+        }
+        String route = data.get("route");
+        if (route == null || route.isBlank()) {
+            return null;
+        }
+        return route.trim();
     }
 }

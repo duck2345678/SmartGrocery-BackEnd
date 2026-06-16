@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Slf4j
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/chat/sessions")
 @Tag(name = "AI Chat History", description = "API quản lý lịch sử trò chuyện AI")

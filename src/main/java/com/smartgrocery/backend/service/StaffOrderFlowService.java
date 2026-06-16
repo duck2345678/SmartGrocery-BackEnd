@@ -153,7 +153,8 @@ public class StaffOrderFlowService {
                         saved.getUser(),
                         "Đơn hàng đang chuẩn bị",
                         "Nhân viên " + staffUser.getFullName() + " đã tiếp nhận và bắt đầu soạn đơn hàng " + saved.getOrderNumber() + " của bạn.",
-                        "ORDER_STATUS"
+                        "ORDER_STATUS",
+                        Map.of("route", "/(customer)/orders/" + saved.getId(), "orderId", String.valueOf(saved.getId()), "type", "ORDER_STATUS")
                 );
             }
         } catch (Exception e) {
@@ -207,7 +208,8 @@ public class StaffOrderFlowService {
                         order.getUser(),
                         "Đơn hàng đang chuẩn bị",
                         "Nhân viên " + staffUser.getFullName() + " đã tiếp nhận và bắt đầu soạn đơn hàng " + order.getOrderNumber() + " của bạn.",
-                        "ORDER_STATUS"
+                        "ORDER_STATUS",
+                        Map.of("route", "/(customer)/orders/" + order.getId(), "orderId", String.valueOf(order.getId()), "type", "ORDER_STATUS")
                 );
             }
         } catch (Exception e) {
@@ -379,7 +381,8 @@ public class StaffOrderFlowService {
                         order.getUser(),
                         "Đã soạn xong sản phẩm",
                         "Đơn hàng " + order.getOrderNumber() + " của bạn đã được soạn xong đầy đủ và đang chờ đóng gói.",
-                        "ORDER_STATUS"
+                        "ORDER_STATUS",
+                        Map.of("route", "/(customer)/orders/" + order.getId(), "orderId", String.valueOf(order.getId()), "type", "ORDER_STATUS")
                 );
             }
         } catch (Exception e) {

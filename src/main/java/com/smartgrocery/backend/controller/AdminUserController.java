@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/admin/users")
 @Tag(name = "Admin - Users", description = "Quản lý tài khoản customer/staff/admin")
@@ -31,6 +30,12 @@ public class AdminUserController {
 
     private void assertAdminOrStaff() {
         if (!SecurityUtils.hasAnyRole("ADMIN", "STAFF")) {
+            throw new AccessDeniedException("Access denied");
+        }
+    }
+
+    private void assertAdmin() {
+        if (!SecurityUtils.hasAnyRole("ADMIN")) {
             throw new AccessDeniedException("Access denied");
         }
     }
@@ -60,7 +65,7 @@ public class AdminUserController {
     @Operation(summary = "Tạo user")
     @PostMapping
     public ResponseEntity<AdminUserDto> create(@AuthenticationPrincipal User actor, @RequestBody AdminUserUpsertRequest request) {
-        assertAdminOrStaff();
+        assertAdmin();
         return ResponseEntity.ok(adminUserManagementService.create(actor, request));
     }
 
@@ -71,7 +76,7 @@ public class AdminUserController {
             @PathVariable("id") Long id,
             @RequestBody AdminUserUpsertRequest request
     ) {
-        assertAdminOrStaff();
+        assertAdmin();
         return ResponseEntity.ok(adminUserManagementService.update(actor, id, request));
     }
 
@@ -82,7 +87,7 @@ public class AdminUserController {
             @PathVariable("id") Long id,
             @RequestBody AdminUserStatusRequest request
     ) {
-        assertAdminOrStaff();
+        assertAdmin();
         return ResponseEntity.ok(adminUserManagementService.setStatus(actor, id, request.getStatus(), request.getReason()));
     }
 
@@ -93,7 +98,7 @@ public class AdminUserController {
             @PathVariable("id") Long id,
             @RequestBody(required = false) AdminUserDeleteRequest request
     ) {
-        assertAdminOrStaff();
+        assertAdmin();
         String reason = request != null ? request.getReason() : null;
         return ResponseEntity.ok(adminUserManagementService.softDelete(actor, id, reason));
     }

@@ -2,6 +2,7 @@ package com.smartgrocery.backend.controller;
 
 import com.smartgrocery.backend.dto.AdminShiftRequestItemDto;
 import com.smartgrocery.backend.dto.AdminShiftRequestStatusRequest;
+import com.smartgrocery.backend.dto.AdminShiftScheduleItemDto;
 import com.smartgrocery.backend.dto.ApiResponse;
 import com.smartgrocery.backend.dto.ShiftRequestDto;
 import com.smartgrocery.backend.security.SecurityUtils;
@@ -17,7 +18,6 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.List;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/admin/shift-requests")
 @Tag(name = "Admin - Shift Requests", description = "Duyệt đăng ký ca làm")
@@ -41,6 +41,16 @@ public class AdminShiftRequestController {
     ) {
         assertAdmin();
         return ResponseEntity.ok(ApiResponse.success(shiftRequestService.adminList(from, to, status)));
+    }
+
+    @Operation(summary = "Danh sách lịch làm việc đã duyệt")
+    @GetMapping("/schedules")
+    public ResponseEntity<ApiResponse<List<AdminShiftScheduleItemDto>>> schedules(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        assertAdmin();
+        return ResponseEntity.ok(ApiResponse.success(shiftRequestService.adminScheduleList(from, to)));
     }
 
     @Operation(summary = "Duyệt/Từ chối đơn đăng ký ca")

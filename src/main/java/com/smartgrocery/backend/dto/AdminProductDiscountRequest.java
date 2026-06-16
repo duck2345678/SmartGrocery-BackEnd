@@ -18,5 +18,8 @@ public class AdminProductDiscountRequest {
     private BigDecimal fixedDiscountAmount; // Nếu muốn giảm số tiền cố định
     private Boolean applyToNetPrice; // true: tính từ netPrice hiện tại, false: set cứng giá mới
     private BigDecimal newNetPrice; // Giá bán mới trực tiếp
+    private java.time.LocalDateTime flashSaleStartsAt;
     private java.time.LocalDateTime flashSaleEndsAt;
+    private Integer flashSaleStockLimit;
+    private Boolean stopFlashSale;
 }

@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/meal-plans")
 @Tag(name = "Meal Plan", description = "API quản lý kế hoạch ăn uống (AI-powered)")

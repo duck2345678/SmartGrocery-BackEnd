@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/orders")
 @Tag(name = "Order", description = "Quản lý Đơn đặt hàng")
@@ -29,6 +28,12 @@ public class OrderController {
     @GetMapping("/my-orders")
     public ResponseEntity<List<OrderDto>> getUserOrders(@AuthenticationPrincipal User user) {
         return ResponseEntity.ok(orderService.getUserOrders(user.getId()));
+    }
+
+    @Operation(summary = "Admin xem chi tiet don hang")
+    @GetMapping("/admin/{orderId}")
+    public ResponseEntity<OrderDto> getAdminOrderDetail(@PathVariable Long orderId) {
+        return ResponseEntity.ok(orderService.getOrderDetailForAdmin(orderId));
     }
 
     @Operation(summary = "Lấy chi tiết đơn hàng")
@@ -52,7 +57,25 @@ public class OrderController {
     @Operation(summary = "Danh sách voucher đang khả dụng")
     @GetMapping("/vouchers/available")
     public ResponseEntity<List<VoucherDto>> getAvailableVouchers(@AuthenticationPrincipal User user) {
+        if (user == null) throw new RuntimeException("Unauthorized");
         return ResponseEntity.ok(voucherService.getAvailableVouchers(user));
+    }
+
+    @Operation(summary = "Danh sách voucher đã lưu của tôi")
+    @GetMapping("/vouchers/claimed")
+    public ResponseEntity<List<VoucherDto>> getClaimedVouchers(@AuthenticationPrincipal User user) {
+        if (user == null) throw new RuntimeException("Unauthorized");
+        return ResponseEntity.ok(voucherService.getClaimedVouchers(user));
+    }
+
+    @Operation(summary = "Lưu/nhận voucher")
+    @PostMapping("/vouchers/{voucherId}/claim")
+    public ResponseEntity<VoucherDto> claimVoucher(
+            @AuthenticationPrincipal User user,
+            @PathVariable Long voucherId
+    ) {
+        if (user == null) throw new RuntimeException("Unauthorized");
+        return ResponseEntity.ok(voucherService.claimVoucher(user, voucherId));
     }
 
     @Operation(summary = "Hủy đơn hàng")

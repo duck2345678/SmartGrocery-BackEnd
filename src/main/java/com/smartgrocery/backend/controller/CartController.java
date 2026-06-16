@@ -12,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/carts")
 @Tag(name = "Cart", description = "Quản lý Giỏ hàng")
@@ -45,6 +44,15 @@ public class CartController {
         return ResponseEntity.ok(cartService.batchAddToCart(user, requests));
     }
 
+    @Operation(summary = "Xóa nhiều sản phẩm khỏi giỏ hàng")
+    @DeleteMapping("/items")
+    public ResponseEntity<CartDto> removeCartItems(
+            @AuthenticationPrincipal User user,
+            @RequestBody java.util.List<Long> cartItemIds
+    ) {
+        return ResponseEntity.ok(cartService.removeCartItems(user, cartItemIds));
+    }
+
     @Operation(summary = "Xóa sản phẩm khỏi giỏ hàng")
     @DeleteMapping("/item/{cartItemId}")
     public ResponseEntity<CartDto> removeCartItem(
@@ -52,6 +60,12 @@ public class CartController {
             @PathVariable Long cartItemId
     ) {
         return ResponseEntity.ok(cartService.removeCartItem(user, cartItemId));
+    }
+
+    @Operation(summary = "Xóa sạch giỏ hàng")
+    @DeleteMapping("/clear")
+    public ResponseEntity<CartDto> clearCart(@AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(cartService.clearCart(user));
     }
 
     @Operation(summary = "Cập nhật số lượng sản phẩm trong giỏ hàng (quantity=0 sẽ xoá)")

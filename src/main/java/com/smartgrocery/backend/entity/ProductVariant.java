@@ -74,6 +74,16 @@ public class ProductVariant {
     @Column(name = "flash_sale_ends_at")
     private LocalDateTime flashSaleEndsAt;
 
+    @Column(name = "flash_sale_starts_at")
+    private LocalDateTime flashSaleStartsAt;
+
+    @Column(name = "flash_sale_stock_limit")
+    private Integer flashSaleStockLimit;
+
+    @Column(name = "flash_sale_sold_count")
+    @Builder.Default
+    private Integer flashSaleSoldCount = 0;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

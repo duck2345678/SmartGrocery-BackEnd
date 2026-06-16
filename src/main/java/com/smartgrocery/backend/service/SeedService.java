@@ -240,6 +240,29 @@ public class SeedService {
                 "Cá nục sốt cà chua đóng hộp", "Thịt hộp Spam", "Pate gan heo", "Ngô ngọt đóng lon", "Đậu nành lên men (Natty)", "Cháo gói ăn liền",
                 "Bún tươi sấy khô", "Phở bò ăn liền (Dạng tô)", "Rong biển nấu canh", "Kim chi giá đỗ"
         ));
+        // --- NEW: Nguyên liệu bổ sung cho Meal Catalog (culinary accuracy) ---
+        addSeedGroup(catalog, veg, "P_VEGC", "SKU_VC", "PACK", "Gói 300g", 130, 15000, "Việt Nam", Arrays.asList(
+                "Giá đỗ tươi", "Ngải cứu tươi", "Rau thì là", "Khoai mỡ", "Rau thơm tổng hợp", "Nấm mỡ tươi", "Hạt sen tươi"
+        ));
+        addSeedGroup(catalog, fruit, "P_FRUITC", "SKU_FC", "BAG", "Trái 1kg", 100, 28000, "Việt Nam", Arrays.asList(
+                "Dứa (Thơm)"
+        ));
+        addSeedGroup(catalog, staple, "P_STAPLEC", "SKU_SC", "PACK", "Gói 500g", 130, 20000, "Việt Nam", Arrays.asList(
+                "Gạo tấm", "Bánh phở khô", "Sợi mì Ý (Spaghetti)", "Hủ tiếu khô", "Bánh mì ổ", "Nui ống (Macaroni)"
+        ));
+        addSeedGroup(catalog, snack, "P_SNACKB", "SKU_SKB", "PACK", "Gói 200g", 130, 22000, "Việt Nam", Arrays.asList(
+                "Đậu phộng rang", "Hạt sen sấy"
+        ));
+        // --- NEW 2: Bổ sung thêm nguyên liệu sửa lỗi ẩm thực ---
+        addSeedGroup(catalog, veg, "P_VEGD", "SKU_VD", "PACK", "Gói 300g", 130, 18000, "Việt Nam", Arrays.asList(
+                "Bắp ngọt (Ngô Mỹ)"
+        ));
+        addSeedGroup(catalog, meat, "P_MEATN", "SKU_MN", "PACK", "Khay 500g", 130, 85000, "Việt Nam", Arrays.asList(
+                "Tim heo", "Cật heo tươi", "Giò sống"
+        ));
+        addSeedGroup(catalog, staple, "P_STAPLED", "SKU_SD", "PACK", "Gói 500g", 130, 22000, "Việt Nam", Arrays.asList(
+                "Gạo lứt", "Gạo nếp nương", "Sợi bánh canh tươi", "Sợi mì Quảng tươi", "Bánh mì Sandwich", "Mắm tôm Bắc", "Sốt Pesto"
+        ));
         addSeedGroup(catalog, personal, "P_PERSON", "SKU_PER", "PACK", "Gói/Chai cá nhân", 150, 30000, "Việt Nam", Arrays.asList(
                 "Sữa tắm dưỡng ẩm", "Sữa rửa mặt cho da dầu", "Kem chống nắng", "Bàn chải đánh răng mềm", "Nước súc miệng", "Dao cạo râu",
                 "Băng vệ sinh (Gói)", "Tã quần cho bé (Size L)", "Khăn ướt em bé", "Sữa bột công thức", "Bánh ăn dặm", "Phấn rôm",

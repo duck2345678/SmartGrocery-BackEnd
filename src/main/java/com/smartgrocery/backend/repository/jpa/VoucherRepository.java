@@ -15,6 +15,15 @@ import java.util.List;
 @Repository
 public interface VoucherRepository extends JpaRepository<Voucher, Long> {
     Optional<Voucher> findByVoucherCode(String voucherCode);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select v from Voucher v where v.id = :id")
+    Optional<Voucher> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select v from Voucher v where upper(v.voucherCode) = upper(:voucherCode)")
+    Optional<Voucher> findByVoucherCodeForUpdate(@Param("voucherCode") String voucherCode);
+
     @Query("""
             select v from Voucher v
             where v.active = true
@@ -35,6 +44,29 @@ public interface VoucherRepository extends JpaRepository<Voucher, Long> {
               and (v.validUntil is null or v.validUntil >= :now)
             """)
     List<Voucher> findVisibleForUserAt(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+    @Query("""
+            select v from Voucher v
+            where v.active = true
+              and (
+                v.hidden = false
+                or (v.hidden = true and v.assignedUser.id = :userId)
+              )
+              and (v.validFrom is null or v.validFrom <= :now)
+              and (v.validUntil is null or v.validUntil >= :now)
+              and (
+                v.usageLimit is null
+                or coalesce(v.claimCount, 0) < v.usageLimit
+              )
+              and not exists (
+                select 1 from UserClaimedVoucher c
+                where c.user.id = :userId
+                  and c.voucher.id = v.id
+                  and c.status = 'ACTIVE'
+                  and c.used = false
+              )
+            """)
+    List<Voucher> findClaimableForUserAt(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

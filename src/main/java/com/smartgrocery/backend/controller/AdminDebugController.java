@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,6 +21,7 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/api/v1/admin/debug")
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.debug.enabled", havingValue = "true")
 @Tag(name = "Admin - Debug", description = "Debug helpers for admin login and seed status")
 public class AdminDebugController {
 

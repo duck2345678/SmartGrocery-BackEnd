@@ -51,9 +51,19 @@ public class Voucher {
     @Column(name = "usage_limit")
     private Integer usageLimit;
 
+    @Column(name = "min_age")
+    private Integer minAge;
+
+    @Column(name = "max_age")
+    private Integer maxAge;
+
     @Column(name = "usage_count")
     @Builder.Default
     private Integer usageCount = 0;
+
+    @Column(name = "claim_count")
+    @Builder.Default
+    private Integer claimCount = 0;
 
     @Column(nullable = false)
     @Builder.Default

@@ -45,6 +45,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -95,10 +96,36 @@ public class AdminProductService {
     public int updateDiscounts(User actor, AdminProductDiscountRequest req) {
         requireActor(actor);
         if (req.getVariantIds() == null || req.getVariantIds().isEmpty()) return 0;
+        boolean stopFlashSale = Boolean.TRUE.equals(req.getStopFlashSale());
+        boolean appliesDiscount = req.getNewNetPrice() != null || req.getDiscountPercentage() != null || req.getFixedDiscountAmount() != null;
+        if (!stopFlashSale && appliesDiscount && req.getFlashSaleEndsAt() == null) {
+            throw new IllegalArgumentException("Flash sale must have an end time");
+        }
+        if (!stopFlashSale && req.getFlashSaleEndsAt() != null && !req.getFlashSaleEndsAt().isAfter(LocalDateTime.now())) {
+            throw new IllegalArgumentException("Flash sale end time must be in the future");
+        }
+        if (!stopFlashSale && req.getFlashSaleStockLimit() != null && req.getFlashSaleStockLimit() <= 0) {
+            throw new IllegalArgumentException("Flash sale stock limit must be greater than 0");
+        }
         
         List<ProductVariant> variants = productVariantRepository.findAllById(req.getVariantIds());
         int count = 0;
         for (ProductVariant v : variants) {
+            if (stopFlashSale) {
+                if (v.getCompareAtPrice() != null && v.getCompareAtPrice().compareTo(BigDecimal.ZERO) > 0) {
+                    v.setNetPrice(v.getCompareAtPrice());
+                }
+                v.setCompareAtPrice(null);
+                v.setFlashSaleStartsAt(null);
+                v.setFlashSaleEndsAt(null);
+                v.setFlashSaleStockLimit(null);
+                v.setFlashSaleSoldCount(0);
+                productVariantRepository.save(v);
+                count++;
+                syncToNeo4j(v.getProduct());
+                continue;
+            }
+
             // Store original price in compareAtPrice if not already set or if explicitly resetting
             if (v.getCompareAtPrice() == null || v.getCompareAtPrice().compareTo(BigDecimal.ZERO) <= 0) {
                 v.setCompareAtPrice(v.getNetPrice());
@@ -113,10 +140,11 @@ public class AdminProductService {
                 v.setNetPrice(v.getCompareAtPrice().subtract(req.getFixedDiscountAmount()));
             }
             
-            if (req.getFlashSaleEndsAt() != null) {
-                v.setFlashSaleEndsAt(req.getFlashSaleEndsAt());
-                triggerFlashSaleNotification(v);
-            }
+            v.setFlashSaleStartsAt(req.getFlashSaleStartsAt() != null ? req.getFlashSaleStartsAt() : LocalDateTime.now());
+            v.setFlashSaleEndsAt(req.getFlashSaleEndsAt());
+            v.setFlashSaleStockLimit(req.getFlashSaleStockLimit());
+            v.setFlashSaleSoldCount(v.getFlashSaleSoldCount() != null ? v.getFlashSaleSoldCount() : 0);
+            triggerFlashSaleNotification(v);
             
             productVariantRepository.save(v);
             count++;
@@ -472,7 +500,10 @@ public class AdminProductService {
                         .vatPercent(v.getVatPercent())
                         .status(v.getStatus())
                         .stock(stockByVariantId.getOrDefault(v.getId(), 0))
+                        .flashSaleStartsAt(v.getFlashSaleStartsAt())
                         .flashSaleEndsAt(v.getFlashSaleEndsAt())
+                        .flashSaleStockLimit(v.getFlashSaleStockLimit())
+                        .flashSaleSoldCount(v.getFlashSaleSoldCount())
                         .build()).toList())
                 .build();
     }

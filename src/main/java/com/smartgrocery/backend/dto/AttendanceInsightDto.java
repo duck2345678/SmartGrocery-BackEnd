@@ -12,6 +12,8 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class AttendanceInsightDto {
+    private long scheduledToday;
+    private long activeToday;
     private List<AttendanceChartPointDto> chartPoints;
     private List<AttendanceRankingItemDto> lateRanking;
     private List<AttendanceRankingItemDto> absentRanking;

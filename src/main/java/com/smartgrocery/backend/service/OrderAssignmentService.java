@@ -82,7 +82,17 @@ public class OrderAssignmentService {
                 }
 
                 if (!title.isEmpty()) {
-                    notificationService.sendNotification(customer, title, body, "ORDER_STATUS");
+                    notificationService.sendNotification(
+                            customer,
+                            title,
+                            body,
+                            "ORDER_STATUS",
+                            java.util.Map.of(
+                                    "route", "/(customer)/orders/" + savedAssignment.getOrder().getId(),
+                                    "orderId", String.valueOf(savedAssignment.getOrder().getId()),
+                                    "type", "ORDER_STATUS"
+                            )
+                    );
                 }
             }
         } catch (Exception e) {

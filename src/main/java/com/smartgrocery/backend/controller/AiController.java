@@ -18,7 +18,6 @@ import java.math.RoundingMode;
 import java.util.*;
 import java.util.stream.Collectors;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/ai")
 @Tag(name = "AI Controller", description = "API cho các gợi ý AI thông minh")

@@ -10,39 +10,48 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-@CrossOrigin(origins = "*")
 @RestController
-@RequestMapping("/api/admin/vouchers")
-@Tag(name = "Admin - Voucher", description = "Quản lý Voucher & Khuyến mãi")
+@RequestMapping({"/api/admin/vouchers", "/api/v1/admin/vouchers"})
+@Tag(name = "Admin - Voucher", description = "Quan ly Voucher va Khuyen mai")
 @RequiredArgsConstructor
 public class AdminVoucherController {
 
     private final VoucherService voucherService;
     private final AdminProductService adminProductService;
 
-    @Operation(summary = "Lấy toàn bộ danh sách voucher")
+    @Operation(summary = "Lay toan bo danh sach voucher")
     @GetMapping
     public ResponseEntity<List<VoucherDto>> getAllVouchers() {
         return ResponseEntity.ok(voucherService.getAllVouchers());
     }
 
-    @Operation(summary = "Thiết lập giảm giá sản phẩm hàng loạt")
+    @Operation(summary = "Thiet lap giam gia san pham hang loat")
     @PostMapping("/discounts")
-    public ResponseEntity<Integer> updateDiscounts(@RequestAttribute("actor") User actor, @RequestBody AdminProductDiscountRequest request) {
+    public ResponseEntity<Integer> updateDiscounts(
+            @AuthenticationPrincipal User actor,
+            @RequestBody AdminProductDiscountRequest request
+    ) {
         return ResponseEntity.ok(adminProductService.updateDiscounts(actor, request));
     }
 
-    @Operation(summary = "Tạo voucher hàng loạt tự động")
+    @Operation(summary = "Tao voucher hang loat tu dong")
     @PostMapping("/generate")
     public ResponseEntity<List<VoucherDto>> generateVouchers(@RequestBody VoucherGenerationRequest request) {
         return ResponseEntity.ok(voucherService.generateVouchers(request));
     }
 
-    @Operation(summary = "Xóa voucher")
+    @Operation(summary = "Xoa voucher")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteVoucher(@PathVariable Long id) {
         voucherService.deleteVoucher(id);

@@ -17,6 +17,8 @@ public class OrderDto {
     private Long id;
     private Long userId;
     private Long addressId;
+    private String receiverName;
+    private String receiverPhone;
     private String addressLine;
     private String orderNumber;
     private BigDecimal subtotal;

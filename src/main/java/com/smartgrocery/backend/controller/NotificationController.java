@@ -1,6 +1,7 @@
 package com.smartgrocery.backend.controller;
 
 import com.smartgrocery.backend.dto.ApiResponse;
+import com.smartgrocery.backend.dto.NotificationDto;
 import com.smartgrocery.backend.entity.Notification;
 import com.smartgrocery.backend.entity.User;
 import com.smartgrocery.backend.repository.jpa.NotificationRepository;
@@ -13,8 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/notifications")
 @Tag(name = "Notifications", description = "Quản lý thông báo cho User và Staff")
@@ -25,12 +26,12 @@ public class NotificationController {
 
     @Operation(summary = "Lấy danh sách thông báo của người dùng hiện tại")
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Notification>>> getNotifications(@AuthenticationPrincipal User user) {
+    public ResponseEntity<ApiResponse<List<NotificationDto>>> getNotifications(@AuthenticationPrincipal User user) {
         if (user == null) {
             return ResponseEntity.status(401).build();
         }
         List<Notification> list = notificationRepository.findTop200ByUser_IdOrderByCreatedAtDesc(user.getId());
-        return ResponseEntity.ok(ApiResponse.success(list));
+        return ResponseEntity.ok(ApiResponse.success(list.stream().map(this::toDto).collect(Collectors.toList())));
     }
 
     @Operation(summary = "Đánh dấu một thông báo đã đọc")
@@ -70,5 +71,18 @@ public class NotificationController {
             }
         }
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    private NotificationDto toDto(Notification notification) {
+        return NotificationDto.builder()
+                .id(notification.getId())
+                .notificationType(notification.getNotificationType())
+                .title(notification.getTitle())
+                .message(notification.getMessage())
+                .orderId(notification.getOrderId())
+                .route(notification.getRoute())
+                .isRead(notification.getIsRead())
+                .createdAt(notification.getCreatedAt())
+                .build();
     }
 }

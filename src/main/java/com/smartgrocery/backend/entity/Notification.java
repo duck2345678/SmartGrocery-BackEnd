@@ -13,6 +13,8 @@ public class Notification {
     private String notificationType;
     private String title;
     private String message;
+    private Long orderId;
+    private String route;
     private Boolean isRead;
     @CreationTimestamp private LocalDateTime createdAt;
 }

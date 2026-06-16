@@ -113,7 +113,7 @@ public class OrderDispatchService {
                     "Đơn hàng mới đã phân công",
                     "Bạn có đơn mới #" + orderId + ", vui lòng vào app staff để xử lý.",
                     "NEW_ORDER_ASSIGNED",
-                    Map.of("route", "/(staff)/orders", "type", "NEW_ORDER_ASSIGNED"),
+                    Map.of("route", "/(staff)/orders/" + orderId, "orderId", String.valueOf(orderId), "type", "NEW_ORDER_ASSIGNED"),
                     List.of(staff)
             );
         } catch (Exception e) {

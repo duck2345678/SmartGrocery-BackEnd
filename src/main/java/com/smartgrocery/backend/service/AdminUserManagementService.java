@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 
 @Service
@@ -47,11 +48,8 @@ public class AdminUserManagementService {
         int safeSize = Math.min(Math.max(size, 1), 200);
         Specification<User> spec = Specification.where(null);
         if (role != null && !role.isBlank()) {
-            String normalizedRole = role.trim().toUpperCase(Locale.ROOT);
-            Long roleId = roleRepository.findByName(normalizedRole)
-                    .map(Role::getId)
-                    .orElse(-1L);
-            spec = spec.and((root, q, cb) -> cb.equal(root.get("role").get("id"), roleId));
+            List<String> roleNames = roleAliases(role);
+            spec = spec.and((root, q, cb) -> cb.upper(root.get("role").get("name")).in(roleNames));
         }
         if (status != null && !status.isBlank()) {
             String normalizedStatus = status.trim().toUpperCase(Locale.ROOT);
@@ -66,10 +64,8 @@ public class AdminUserManagementService {
             spec = spec.and((root, q, cb) -> cb.lessThan(root.get("createdAt"), to));
         }
         if (isStaff) {
-            Long customerRoleId = roleRepository.findByName("CUSTOMER")
-                    .map(Role::getId)
-                    .orElse(-1L);
-            spec = spec.and((root, q, cb) -> cb.equal(root.get("role").get("id"), customerRoleId));
+            List<String> customerRoleNames = roleAliases("CUSTOMER");
+            spec = spec.and((root, q, cb) -> cb.upper(root.get("role").get("name")).in(customerRoleNames));
         }
         return userRepository.findAll(spec, PageRequest.of(safePage, safeSize)).map(this::toDto);
     }
@@ -77,7 +73,9 @@ public class AdminUserManagementService {
     @Transactional(readOnly = true)
     public long countByRole(String role) {
         if (role == null || role.isBlank()) return userRepository.count();
-        return userRepository.countByRole_NameIgnoreCase(role.trim());
+        return roleAliases(role).stream()
+                .mapToLong(userRepository::countByRole_NameIgnoreCase)
+                .sum();
     }
 
     @Transactional
@@ -176,7 +174,15 @@ public class AdminUserManagementService {
     }
 
     private boolean hasRole(User user, String roleName) {
-        return user != null && user.getRole() != null && roleName.equalsIgnoreCase(user.getRole().getName());
+        return user != null && user.getRole() != null && roleAliases(roleName).stream().anyMatch(r -> r.equalsIgnoreCase(user.getRole().getName()));
+    }
+
+    private List<String> roleAliases(String role) {
+        String normalized = role.trim().toUpperCase(Locale.ROOT);
+        if (normalized.startsWith("ROLE_")) {
+            return List.of(normalized, normalized.substring("ROLE_".length()));
+        }
+        return List.of(normalized, "ROLE_" + normalized);
     }
 
     private String required(String value, String field) {

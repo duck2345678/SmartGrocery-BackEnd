@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api/v1/wishlist")
 @Tag(name = "Customer - Wishlist", description = "Quản lý danh sách yêu thích")

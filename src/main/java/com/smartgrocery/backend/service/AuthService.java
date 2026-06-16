@@ -37,10 +37,26 @@ public class AuthService {
 
     @Transactional("transactionManager")
     public RegistrationPendingResponse register(RegisterRequest request, String deviceFingerprint) {
+        if (request.getPhone() == null || request.getPhone().isBlank()) {
+            throw new IllegalArgumentException("Phone is required");
+        }
+        String phone = request.getPhone().trim();
+        if (!phone.matches("^(\\+84|0)\\d{9,10}$")) {
+            throw new IllegalArgumentException("Invalid phone number");
+        }
+
         if (userRepository.existsByEmail(request.getEmail())) {
             // Nếu đã tồn tại và PENDING_VERIFY, cho phép gửi lại OTP
             User existing = userRepository.findByEmail(request.getEmail()).orElseThrow();
             if ("PENDING_VERIFY".equals(existing.getStatus())) {
+                if (!phone.equals(existing.getPhone()) && userRepository.existsByPhoneAndIdNot(phone, existing.getId())) {
+                    throw new IllegalArgumentException("Phone already exists");
+                }
+                existing.setFullName(request.getFullName());
+                existing.setPhone(phone);
+                existing.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+                userRepository.save(existing);
+
                 String otp = emailOtpService.generateAndSave(request.getEmail(), "EMAIL_VERIFY");
                 accountEmailService.sendEmailVerificationOtp(request.getEmail(), existing.getFullName(), otp);
                 return RegistrationPendingResponse.builder()
@@ -53,13 +69,6 @@ public class AuthService {
             throw new RuntimeException("Email này đã được đăng ký.");
         }
 
-        if (request.getPhone() == null || request.getPhone().isBlank()) {
-            throw new IllegalArgumentException("Số điện thoại không được để trống.");
-        }
-        String phone = request.getPhone().trim();
-        if (!phone.matches("^(\\+84|0)\\d{9,10}$")) {
-            throw new IllegalArgumentException("Số điện thoại không hợp lệ (phải gồm 10 chữ số).");
-        }
         if (userRepository.findByPhone(phone).isPresent()) {
             throw new IllegalArgumentException("Số điện thoại này đã được sử dụng bởi một tài khoản khác.");
         }

@@ -96,4 +96,12 @@ public class ChatHistoryService {
 
         return saved;
     }
+
+    @Transactional(value = "transactionManager")
+    public void updateSessionContextType(Long sessionId, String contextType) {
+        chatSessionRepository.findById(sessionId).ifPresent(session -> {
+            session.setContextType(contextType);
+            chatSessionRepository.save(session);
+        });
+    }
 }

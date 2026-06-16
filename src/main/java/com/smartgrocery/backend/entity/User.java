@@ -16,6 +16,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 
@@ -69,6 +70,9 @@ public class User implements UserDetails {
 
     @Column(name = "email_verified_at")
     private LocalDateTime emailVerifiedAt;
+
+    @Column(name = "birth_date")
+    private LocalDate birthDate;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
